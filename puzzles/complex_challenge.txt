@@ -1,0 +1,10 @@
+=== OMNI-CIPHER TEST LEVEL 5 ===
+CONDITIONS:
+1. If the intermediate layer length is odd, drop the last character before rotating.
+2. If an embedded key is found, use it as a Vigenere shift; otherwise, fallback to ROT13.
+3. The final payload contains a nested hash flag.
+
+[RAW ENCRYPTED DATA STREAM START]
+VTIxaGMyVnNZVzVuYkdWemN6b3hNVEV1TUM0dE1DNHREUTA9
+[RAW ENCRYPTED DATA STREAM END]
+

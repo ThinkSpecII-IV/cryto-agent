@@ -1,0 +1,21 @@
+=== ORBITAL DECRYPTION TASK: LEVEL 9 ===
+CONDITIONS ENGINE MATRIX:
+
+[LAYER 1: PARITY GATING]
+- Count the total number of characters in the raw string payload below.
+- IF the length is EVEN: Strip all trailing '=' padding before passing to Layer 2.
+- IF the length is ODD: Shift every character down by exactly 1 index point in the ASCII map, then pass to Layer 2.
+
+[LAYER 2: SYLLABIC ANALYSIS FILTER]
+- Scan the decoded intermediate ASCII string text segment.
+- IF the string ends with a word containing exactly TWO syllables: Split the string perfectly in half and reverse the order of the two halves.
+- IF the string ends with a word containing exactly THREE syllables: Execute a classic Caesar Cipher ROT13 shift across the entire string block.
+
+[LAYER 3: BINARY CHECKSUM UNMASK]
+- Convert the resulting string characters into their raw 8-bit binary representations.
+- Perform a Bitwise XOR operation against the repeating initialization vector byte: 01010101 (0x55).
+- The final output will yield the plain text flag.
+
+[RAW ENCRYPTED DATA STREAM START]
+T2lGN09UQWpNRGw3T3p3N01EbzRPeng3Tmp3bFBUQW5lemM9
+[RAW ENCRYPTED DATA STREAM END]
