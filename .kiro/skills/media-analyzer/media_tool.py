@@ -845,6 +845,10 @@ def _analyze_audio_content(
     if mode in ("all", "spectrogram", "morse"):
         fft_sweep_audio(samples, sample_rate, top_n=8, verbose=verbose)
 
+    # Spectrogram edge-scan — Canny geometry detection on magnitude matrix
+    if mode in ("all", "spectrogram"):
+        scan_spectrogram_edges(samples, sample_rate, verbose=verbose)
+
 
 # ---------------------------------------------------------------------------
 # Audio FFT Enhancement — in-memory sweep with Morse carrier detection
@@ -1003,6 +1007,159 @@ def flash_frame_scanner(
         "anomalous_count":  len(anomalous_frames),
         "global_mean_diff": round(global_mean, 3),
         "global_peak_diff": round(global_max, 3),
+    }
+
+
+
+# ---------------------------------------------------------------------------
+# Spectrogram edge scan — Canny geometry detection on magnitude matrix
+# ---------------------------------------------------------------------------
+
+def scan_spectrogram_edges(
+    samples: "np.ndarray",
+    sample_rate: int,
+    canny_low: int = 50,
+    canny_high: int = 150,
+    min_contour_area: float = 20.0,
+    verbose: bool = False,
+) -> dict:
+    """
+    Run Canny edge detection over a spectrogram magnitude matrix to look for
+    geometric structures or visually embedded text patterns.
+
+    How it works
+    ────────────
+    1. Build a standard STFT spectrogram via scipy.signal.spectrogram.
+    2. Normalise the dB-scaled magnitude matrix to a uint8 grayscale image
+       (frequency axis → rows, time axis → columns).
+    3. Apply cv2.Canny() to extract sharp magnitude-gradient edges.
+    4. Find contours in the edge map with cv2.findContours().
+    5. Report bounding-box geometry and aspect ratios of the largest contours.
+
+    Limitations
+    ───────────
+    Spectrograms encode energy density, not typography.  This function can
+    detect *structured, repetitive, or rectangular* anomalies in frequency
+    space (e.g. SSTV frames, tonal grids, deliberate text painted in audio),
+    but it will NOT read arbitrary text from normal speech or music.  Treat
+    any "structured geometry detected" result as a lead to investigate
+    further, not a confirmed flag.
+
+    Returns
+    ───────
+    dict with keys:
+      spectrogram_shape   — (freq_bins, time_bins)
+      edge_pixel_ratio    — fraction of pixels that are edges (0.0–1.0)
+      contour_count       — number of contours above min_contour_area
+      top_contours        — list of dicts with x, y, w, h, area, aspect_ratio
+      structured_geometry_detected — bool: True when layout looks non-random
+    """
+    signal_mod = _get_scipy_signal()
+
+    # ── 1. Build spectrogram ──────────────────────────────────────────────
+    nperseg = min(1024, len(samples) // 4)
+    if nperseg < 64:
+        msg = "Audio too short for spectrogram edge scan"
+        if verbose:
+            print(f"[spectrogram-edge] ⚠ {msg}")
+        return {"error": msg, "structured_geometry_detected": False}
+
+    freqs, times, Sxx = signal_mod.spectrogram(
+        samples, fs=sample_rate, nperseg=nperseg,
+        noverlap=nperseg // 2, scaling="density",
+    )
+    Sxx_db = 10.0 * np.log10(Sxx + 1e-10)
+
+    # ── 2. Normalise to uint8 ─────────────────────────────────────────────
+    vmin = np.percentile(Sxx_db, 5)
+    vmax = np.percentile(Sxx_db, 99)
+    norm = np.clip((Sxx_db - vmin) / max(vmax - vmin, 1e-6), 0.0, 1.0)
+    gray_img = (norm * 255).astype(np.uint8)
+
+    # Flip so low frequencies sit at the bottom (conventional orientation)
+    gray_img = np.flipud(gray_img)
+
+    # ── 3. Canny edge detection ───────────────────────────────────────────
+    edges = cv2.Canny(gray_img, threshold1=canny_low, threshold2=canny_high)
+
+    edge_pixel_ratio = float(np.count_nonzero(edges)) / max(edges.size, 1)
+
+    # ── 4. Find contours ──────────────────────────────────────────────────
+    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    significant: list[dict] = []
+    for cnt in contours:
+        area = float(cv2.contourArea(cnt))
+        if area < min_contour_area:
+            continue
+        x, y, w, h = cv2.boundingRect(cnt)
+        aspect = round(w / max(h, 1), 3)
+        significant.append({"x": x, "y": y, "w": w, "h": h,
+                             "area": round(area, 1), "aspect_ratio": aspect})
+
+    # Sort by area descending; keep top 10 for the report
+    significant.sort(key=lambda d: d["area"], reverse=True)
+    top_contours = significant[:10]
+
+    # ── 5. Heuristic: is the geometry structured / non-random? ────────────
+    # Thresholds are intentionally conservative to limit false positives.
+    structured = False
+    reasons: list[str] = []
+
+    #  a) Many sizeable contours → repeated pattern
+    if len(significant) > 30:
+        structured = True
+        reasons.append(f"{len(significant)} contours above area threshold")
+
+    #  b) Several tall, narrow contours → possible vertical stripe / text column
+    tall_narrow = [c for c in top_contours if c["aspect_ratio"] < 0.4 and c["h"] > 10]
+    if len(tall_narrow) >= 4:
+        structured = True
+        reasons.append(f"{len(tall_narrow)} tall-narrow contours (possible text columns)")
+
+    #  c) Several wide, short contours → possible horizontal band / text row
+    wide_short = [c for c in top_contours if c["aspect_ratio"] > 2.5 and c["w"] > 10]
+    if len(wide_short) >= 4:
+        structured = True
+        reasons.append(f"{len(wide_short)} wide-short contours (possible text rows)")
+
+    #  d) Edge density is notably higher than random noise baseline
+    if edge_pixel_ratio > 0.08:
+        structured = True
+        reasons.append(f"high edge density ({edge_pixel_ratio:.3f})")
+
+    # ── Print report ──────────────────────────────────────────────────────
+    print(f"\n[Spectrogram Edge Scan — Canny Geometry Detection]")
+    print(f"  Spectrogram shape  : {Sxx_db.shape[0]} freq bins × {Sxx_db.shape[1]} time bins")
+    print(f"  Edge pixel ratio   : {edge_pixel_ratio:.4f}")
+    print(f"  Contours found     : {len(contours)} total, {len(significant)} above area threshold")
+
+    if top_contours:
+        print(f"  Top contours (by area):")
+        for c in top_contours[:5]:
+            print(f"    x={c['x']:4d} y={c['y']:4d}  {c['w']}×{c['h']}px  "
+                  f"area={c['area']:.0f}  aspect={c['aspect_ratio']}")
+
+    if structured:
+        print(f"\n  🔓 [AUDIO VISUAL SPECTROGRAM FLAG UNMASKED]")
+        for r in reasons:
+            print(f"     ↳ {r}")
+    else:
+        print(f"  No structured geometry detected (likely normal audio content).")
+
+    if verbose:
+        print(f"  Canny thresholds   : low={canny_low}  high={canny_high}")
+        print(f"  Min contour area   : {min_contour_area} px²")
+        print(f"  Note: edge detection on spectrograms detects frequency-space")
+        print(f"        geometry, not typography. Results are investigative leads.")
+
+    return {
+        "spectrogram_shape": Sxx_db.shape,
+        "edge_pixel_ratio": round(edge_pixel_ratio, 4),
+        "contour_count": len(significant),
+        "top_contours": top_contours,
+        "structured_geometry_detected": structured,
+        "reasons": reasons,
     }
 
 
