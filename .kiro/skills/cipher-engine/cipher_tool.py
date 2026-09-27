@@ -913,3 +913,107 @@ def ocb_cipher_chain_logged(text: str, asset_name: str = "inline") -> dict:
 
     _ocb_timeline_write(asset_name, timeline)
     return result
+
+
+# === OMNI-CIPHER APEX EXTENSION ===
+# Extended ASCII shift — operates over the full 0-255 codepoint range.
+# Zero modifications to any function above this line.
+# ════════════════════════════════════════════════════════════════════
+
+
+def decode_caesar_ascii256(text: str, shift: int) -> str:
+    """
+    Apply a Caesar-style shift across the full 256-character ASCII table.
+
+    Unlike the standard decode_caesar(), which wraps only within A-Z / a-z
+    and leaves all other characters unchanged, this function treats every
+    byte in the string uniformly:
+
+        decoded_char = chr((ord(char) - shift) % 256)
+
+    This is useful when the ciphertext was produced by shifting arbitrary
+    byte values rather than plain alphabetic characters — for example,
+    CTF challenges that encode punctuation, digits, or high-byte symbols
+    as part of the cipher alphabet.
+
+    Parameters
+    ----------
+    text  : ciphertext string (any characters, including extended ASCII)
+    shift : integer offset to subtract (0-255); wraps via modulo 256
+
+    Returns
+    -------
+    Decoded string with every character shifted by -shift mod 256.
+    """
+    shift = shift % 256
+    return "".join(chr((ord(c) - shift) % 256) for c in text)
+
+
+def brute_ascii256(
+    text: str,
+    top_n: int = 5,
+    verbose: bool = False,
+) -> list[dict]:
+    """
+    Brute-force all 255 non-zero shifts over the 256-char ASCII table.
+
+    Scoring strategy
+    ────────────────
+    English letter-frequency scoring (score_english) is designed for
+    A-Z / a-z text and gives misleading results when the candidate
+    contains high-byte characters.  Instead we use two complementary
+    signals ranked in order of priority:
+
+      1. Printable ratio  — fraction of characters that are printable
+                            ASCII (0x20–0x7E).  Higher is better.
+      2. English score    — applied as a tiebreaker when printable
+                            ratios are similar, to surface human-readable
+                            candidates over random-looking printable junk.
+
+    Parameters
+    ----------
+    text   : ciphertext string
+    top_n  : how many top candidates to return (default 5)
+    verbose: if True, print all 255 candidates
+
+    Returns
+    -------
+    List of dicts (sorted best-first), each with:
+      shift          — the shift value that produced this candidate
+      printable_ratio — fraction of printable chars (0.0–1.0)
+      english_score  — score_english() result
+      decoded        — the decoded string
+    """
+    results: list[dict] = []
+
+    for shift in range(1, 256):
+        candidate = decode_caesar_ascii256(text, shift)
+        printable = sum(1 for c in candidate if 0x20 <= ord(c) <= 0x7E)
+        p_ratio   = printable / max(len(candidate), 1)
+        eng_score = score_english(candidate)
+        results.append({
+            "shift":           shift,
+            "printable_ratio": round(p_ratio, 4),
+            "english_score":   round(eng_score, 4),
+            "decoded":         candidate,
+        })
+
+        if verbose:
+            preview = candidate[:60].replace("\n", "\\n")
+            print(f"  shift={shift:3d}  printable={p_ratio:.3f}  "
+                  f"eng={eng_score:.3f}  → {preview}")
+
+    # Sort: printable ratio primary, english score secondary
+    results.sort(key=lambda r: (r["printable_ratio"], r["english_score"]), reverse=True)
+
+    top = results[:top_n]
+
+    print(f"\n[ASCII-256 Caesar Brute-Force — Top {top_n} candidates]")
+    for rank, r in enumerate(top, 1):
+        preview = r["decoded"][:80].replace("\n", "\\n")
+        print(f"  #{rank}  shift={r['shift']:3d}  "
+              f"printable={r['printable_ratio']:.3f}  "
+              f"eng={r['english_score']:.3f}")
+        print(f"      → {preview}")
+
+    return top
