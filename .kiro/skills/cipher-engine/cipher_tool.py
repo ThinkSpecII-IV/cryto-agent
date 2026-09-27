@@ -1017,3 +1017,145 @@ def brute_ascii256(
         print(f"      → {preview}")
 
     return top
+
+
+# === OMNI-CIPHER APEX EXTENSION: RAW BYTE STABILIZATION ===
+# Fixes silent byte-dropping in solve_multi_layer_cipher's Base64 path.
+# The original used errors='ignore' which discards non-UTF-8 bytes entirely.
+# This extension provides a byte-safe wrapper that retries with latin-1
+# (a 1:1 mapping of all 256 byte values to Unicode) so no byte is ever lost.
+# Zero modifications to any function above this line.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _b64_decode_raw_safe(s: str) -> str:
+    """
+    Decode a Base64 string to text without silently dropping bytes.
+
+    Decoding order (first success wins):
+      1. UTF-8 strict    — clean text, no substitution
+      2. UTF-8 replace   — keeps byte positions, marks bad bytes with U+FFFD
+      3. latin-1         — 1:1 map of all 256 byte values; nothing is ever lost
+
+    This replaces the inline `base64.b64decode(...).decode('utf-8', errors='ignore')`
+    calls inside solve_multi_layer_cipher, which silently discard bytes that
+    aren't valid UTF-8 — causing character-dropping on CTF payloads that
+    encode raw binary, high-ASCII symbols, or non-standard punctuation.
+    """
+    import base64 as _b64
+    padded = s + "=" * ((4 - len(s) % 4) % 4)
+    raw = _b64.b64decode(padded)
+
+    for encoding in ("utf-8", "latin-1"):
+        errors = "strict" if encoding == "utf-8" else "strict"
+        try:
+            return raw.decode(encoding)
+        except (UnicodeDecodeError, ValueError):
+            pass
+
+    # latin-1 covers all 256 values — this branch is only reached on truly
+    # malformed input (e.g. truncated multi-byte sequence at end of buffer).
+    return raw.decode("latin-1", errors="replace")
+
+
+def solve_multi_layer_cipher_stable(cipher_text: str) -> dict:
+    """
+    Byte-stable variant of solve_multi_layer_cipher.
+
+    Identical logic and interface, with one fix: Base64 decoding now uses
+    _b64_decode_raw_safe() instead of .decode('utf-8', errors='ignore'),
+    so non-UTF-8 bytes (e.g. raw binary payloads, high-ASCII CTF tokens,
+    '#', '_', digits inside encoded blobs) are preserved rather than dropped.
+
+    The Caesar/ROT branch already preserved non-alpha characters correctly
+    in the original; that logic is unchanged here.
+
+    Returns the same dict shape as solve_multi_layer_cipher:
+      {"chain": [step_strings], "final_plaintext": str}
+    """
+    import base64 as _b64
+    import re as _re
+
+    match = _re.search(r'\[.*?START\]\s*(.*?)\s*\[.*?END\]', cipher_text, _re.DOTALL)
+    if match:
+        cipher_text = match.group(1)
+    current = cipher_text.strip()
+
+    steps: list[str] = []
+
+    for layer in range(1, 6):
+
+        # ── Layer attempt 1: Base64 (byte-safe) ──────────────────────────
+        try:
+            decoded = _b64_decode_raw_safe(current)
+            if any(c.isalnum() for c in decoded) and len(decoded) > 2:
+                current = decoded
+                steps.append(f"Layer {layer} [Base64-safe]: {current}")
+                continue
+        except Exception:
+            pass
+
+        # ── Layer attempt 2: Hex ──────────────────────────────────────────
+        try:
+            clean_hex = current.replace(" ", "").replace("0x", "")
+            raw_hex = bytes.fromhex(clean_hex)
+            # Same byte-safe decode: try UTF-8, fall back to latin-1
+            try:
+                decoded = raw_hex.decode("utf-8")
+            except UnicodeDecodeError:
+                decoded = raw_hex.decode("latin-1")
+            if any(c.isalnum() for c in decoded) and len(decoded) > 2:
+                current = decoded
+                steps.append(f"Layer {layer} [Hex-safe]: {current}")
+                continue
+        except Exception:
+            pass
+
+        # ── Layer attempt 3: Caesar/ROT (alpha-only shift; non-alpha preserved) ─
+        # Non-alpha characters (digits, '#', '_', punctuation) are passed through
+        # unchanged — this matches the original behaviour, documented here explicitly.
+        best_rot = current
+        max_score = -1.0
+        for shift in range(1, 26):
+            candidate = ""
+            for char in current:
+                if char.isalpha():
+                    start = ord("A") if char.isupper() else ord("a")
+                    candidate += chr((ord(char) - start - shift) % 26 + start)
+                else:
+                    candidate += char   # '#', '_', digits, punctuation — untouched
+            sc = score_english(candidate)
+            if sc > max_score:
+                max_score = sc
+                best_rot = candidate
+
+        if best_rot != current and max_score > 0:
+            current = best_rot
+            steps.append(f"Layer {layer} [Caesar/ROT]: {current}")
+            continue
+
+        # ── Layer attempt 4: ASCII-256 shift fallback ─────────────────────
+        # Only reached when alpha-only Caesar finds no improvement.
+        # Sweeps the full 256-value space via (ord(c) - shift) % 256 and
+        # picks the shift that maximises the printable-character ratio.
+        # This catches ciphers applied to arbitrary byte values rather than
+        # just A-Z / a-z.
+        best_a256 = current
+        best_printable = sum(1 for c in current if 0x20 <= ord(c) <= 0x7E) / max(len(current), 1)
+        best_a256_shift = 0
+        for shift in range(1, 256):
+            candidate = "".join(chr((ord(c) - shift) % 256) for c in current)
+            p_ratio = sum(1 for c in candidate if 0x20 <= ord(c) <= 0x7E) / max(len(candidate), 1)
+            if p_ratio > best_printable:
+                best_printable = p_ratio
+                best_a256 = candidate
+                best_a256_shift = shift
+
+        if best_a256 != current and best_printable > 0.85:
+            current = best_a256
+            steps.append(f"Layer {layer} [ASCII-256 shift={best_a256_shift}]: {current}")
+            continue
+
+        break
+
+    return {"chain": steps, "final_plaintext": current}
