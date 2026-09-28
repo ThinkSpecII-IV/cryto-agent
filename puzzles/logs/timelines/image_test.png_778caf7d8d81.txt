@@ -1,0 +1,14 @@
+
+------------------------------------------------------------
+[2026-09-28 23:20:11.196] image-stego asset=test.png
+  START  path=/var/folders/pw/1zs9zmz95t39srr114lgjnbr0000gn/T/tmp.AgNaLlZiwe/test.png
+  EXIF   tags=0  time=0.23ms
+  CHUNKS total=3  notable=0  time=0.08ms
+  LSB    pixels=64  bits=256  bytes=32  time=1.37ms  (numpy vectorised)
+  LSB    text_preview=''
+  PLANE  channel=Red  anomaly=HIGH  score=1.0  entropy=-0.0  time=11.83ms
+  PLANE  channel=Green  anomaly=HIGH  score=1.0  entropy=-0.0  time=11.83ms
+  PLANE  channel=Blue  anomaly=HIGH  score=1.0  entropy=-0.0  time=11.83ms
+  PLANE  channel=Alpha  anomaly=HIGH  score=1.0  entropy=-0.0  time=11.83ms
+  STRINGS  found=0  time=0.37ms
+  END    total_time=13.97ms

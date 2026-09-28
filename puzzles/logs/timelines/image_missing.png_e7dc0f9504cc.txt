@@ -1,0 +1,20 @@
+
+------------------------------------------------------------
+[2026-09-28 22:31:35.879] image-stego asset=missing.png
+  START  path=/missing.png
+  EXIF   tags=1  time=0.02ms
+  CHUNKS total=1  notable=0  time=0.01ms
+  ERROR  LSB  FileNotFoundError: [Errno 2] No such file or directory: '/missing.png'
+  STRINGS  found=1  time=0.03ms
+  STRING   offset=None  val=''
+  END    total_time=4.91ms
+
+------------------------------------------------------------
+[2026-09-28 23:19:31.911] image-stego asset=missing.png
+  START  path=/missing.png
+  EXIF   tags=1  time=0.03ms
+  CHUNKS total=1  notable=0  time=0.01ms
+  ERROR  LSB  FileNotFoundError: [Errno 2] No such file or directory: '/missing.png'
+  STRINGS  found=1  time=0.05ms
+  STRING   offset=None  val=''
+  END    total_time=5.94ms

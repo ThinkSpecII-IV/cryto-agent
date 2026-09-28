@@ -1,0 +1,7 @@
+
+------------------------------------------------------------
+[2026-09-28 22:31:35.873] cipher-engine asset=same.txt
+  START input_len=8 preview='SGVsbG8='
+  LAYER depth=0 cipher=base64 conf=HIGH len_in=8 len_out=5 time=0.02ms
+  LAYER depth=1 cipher=caesar conf=HIGH (shift=14) len_in=5 len_out=5 time=0.17ms
+  END final_len=5 total_time=1.07ms

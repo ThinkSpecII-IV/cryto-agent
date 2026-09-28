@@ -1,0 +1,15 @@
+
+------------------------------------------------------------
+[2026-09-28 22:31:36.123] media-analyzer asset=missing.wav
+  START  path=/missing.wav
+  LOAD   FAILED — samples is None
+
+------------------------------------------------------------
+[2026-09-28 23:19:27.198] media-analyzer asset=missing.wav
+  START  path=/missing.wav
+  LOAD   FAILED — samples is None
+
+------------------------------------------------------------
+[2026-09-28 23:19:32.203] media-analyzer asset=missing.wav
+  START  path=/missing.wav
+  LOAD   FAILED — samples is None

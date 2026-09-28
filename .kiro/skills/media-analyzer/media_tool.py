@@ -19,10 +19,10 @@ import shutil
 # ---------------------------------------------------------------------------
 
 DEPS = [
-    ("numpy", "numpy"),
-    ("scipy", "scipy"),
-    ("cv2", "opencv-python"),
-    ("PIL", "Pillow"),
+    ("numpy", "numpy==2.5.3"),
+    ("scipy", "scipy==1.18.1"),
+    ("cv2", "opencv-python==5.0.0.93"),
+    ("PIL", "Pillow==12.3.0"),
 ]
 
 
@@ -49,6 +49,8 @@ import io
 import struct
 import wave
 import tempfile
+import fcntl
+import hashlib
 from pathlib import Path
 from typing import Optional, Union
 
@@ -57,6 +59,14 @@ import numpy as np
 from PIL import Image
 
 SEPARATOR = "=" * 65
+
+
+def _decode_raw_text(raw: bytes) -> str:
+    """Decode bytes without dropping invalid UTF-8 sequences."""
+    try:
+        return raw.decode("utf-8", errors="strict")
+    except UnicodeDecodeError:
+        return raw.decode("latin-1", errors="strict")
 
 # Lazy scipy imports (used only when needed)
 _scipy_signal = None
@@ -90,7 +100,7 @@ MORSE_DECODE: dict[str, str] = {
     ".--.": "P", "--.-": "Q", ".-.": "R",  "...": "S",  "-": "T",
     "..-": "U",  "...-": "V", ".--": "W",  "-..-": "X", "-.--": "Y",
     "--..": "Z", "-----": "0","----." : "9","---..": "8","--...": "7",
-    "-....": "6",".....: ": "5","....-": "4","...--": "3","..---": "2",
+    "-....": "6",".....": "5","....-": "4","...--": "3","..---": "2",
     ".----": "1",
 }
 
@@ -599,16 +609,10 @@ def extract_audio_lsb(samples: np.ndarray, sample_rate: int) -> dict:
     trim = (lsb_plane.size // 8) * 8
     byte_data = bytearray(np.packbits(lsb_plane[:trim]))
 
-    # Try to interpret as text
-    text_preview = None
-    try:
-        # Find null-terminated or printable region
-        decoded = bytes(byte_data).decode("utf-8", errors="ignore")
-        printable = "".join(c for c in decoded if c.isprintable() or c in "\n\r\t")
-        if len(printable) > 10:
-            text_preview = printable[:400]
-    except Exception:
-        pass
+    raw_bytes = bytes(byte_data)
+    decoded = _decode_raw_text(raw_bytes)
+    printable = "".join(c for c in decoded if c.isprintable() or c in "\n\r\t")
+    text_preview = decoded[:400] if len(printable) > 10 else None
 
     return {
         "total_samples": len(int_samples),
@@ -616,6 +620,7 @@ def extract_audio_lsb(samples: np.ndarray, sample_rate: int) -> dict:
         "total_bytes": len(byte_data),
         "hex_preview": byte_data[:64].hex(),
         "text_preview": text_preview,
+        "raw_bytes": raw_bytes,
     }
 
 
@@ -813,8 +818,6 @@ def _analyze_audio_content(
     mode: str,
     output_dir: str,
     save_spectrogram: bool,
-    verbose: bool,
-    source_path: str,
 ) -> None:
     """Common audio analysis logic."""
     spec_save_path = None
@@ -1205,10 +1208,15 @@ Examples:
         diff_threshold=args.diff_threshold,
         verbose=args.verbose,
     )
-
-
-if __name__ == "__main__":
-    main()
+    extension = Path(args.input).suffix.lower()
+    if extension in (".wav", ".mp3", ".flac", ".aac", ".ogg", ".m4a"):
+        telemetry = ocb_audio_analyze_logged(args.input)
+    else:
+        telemetry = ocb_video_analyze_logged(
+            args.input, frame_interval=args.frame_interval,
+            diff_threshold=args.diff_threshold,
+        )
+    print(f"[media-analyzer] Telemetry: {telemetry['telemetry']['timeline_path']}")
 
 
 # === OMNI-CIPHER BOT EXTENSION ===
@@ -1220,8 +1228,9 @@ import datetime as _dt_med
 import traceback as _tb_med
 import time as _time_med
 
-_TIMELINE_DIR_MED   = "puzzles/logs/timelines"
-_DIAGNOSTIC_DIR_MED = "puzzles/logs/diagnostics"
+_REPO_ROOT_MED = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+_TIMELINE_DIR_MED = os.path.join(_REPO_ROOT_MED, "puzzles", "logs", "timelines")
+_DIAGNOSTIC_DIR_MED = os.path.join(_REPO_ROOT_MED, "puzzles", "logs", "diagnostics")
 
 
 def _med_ensure_dirs() -> None:
@@ -1234,32 +1243,36 @@ def _med_ts() -> str:
     return _dt_med.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
 
-def _med_timeline_write(asset_name: str, lines: list) -> None:
-    import os
+def _med_locked_append(path: str, content: str) -> None:
+    with open(path, "a", encoding="utf-8") as fh:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        try:
+            fh.write(content)
+            fh.flush()
+            os.fsync(fh.fileno())
+        finally:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+
+
+def _med_timeline_write(asset_name: str, lines: list) -> dict[str, str]:
     _med_ensure_dirs()
     safe = "".join(c if c.isalnum() or c in "._-" else "_" for c in asset_name)
-    path = os.path.join(_TIMELINE_DIR_MED, f"{safe}.txt")
-    with open(path, "a", encoding="utf-8") as fh:
-        fh.write(f"\n{'─'*60}\n")
-        fh.write(f"[{_med_ts()}]  media-analyzer  asset={asset_name}\n")
-        for line in lines:
-            fh.write(f"  {line}\n")
+    digest = hashlib.sha256(asset_name.encode("utf-8")).hexdigest()[:12]
+    path = os.path.join(_TIMELINE_DIR_MED, f"media_{safe}_{digest}.txt")
+    content = f"\n{'-' * 60}\n[{_med_ts()}] media-analyzer asset={asset_name}\n"
+    content += "".join(f"  {line}\n" for line in lines)
+    _med_locked_append(path, content)
+    return {"timeline_path": path, "diagnostic_path": os.path.join(_DIAGNOSTIC_DIR_MED, "media_analyzer_diagnostics.txt")}
 
 
 def _med_diag_write(fn_sig: str, lineno: int, root_cause: str, suggestion: str) -> None:
-    import os
     _med_ensure_dirs()
     path = os.path.join(_DIAGNOSTIC_DIR_MED, "media_analyzer_diagnostics.txt")
-    with open(path, "a", encoding="utf-8") as fh:
-        fh.write(f"\n{'═'*60}\n")
-        fh.write(f"[{_med_ts()}]\n")
-        fh.write(f"  Tool       : media_tool.py\n")
-        fh.write(f"  Function   : {fn_sig}\n")
-        fh.write(f"  Line       : {lineno}\n")
-        fh.write(f"  Root cause : {root_cause}\n")
-        fh.write(f"  Fix model  :\n")
-        for l in suggestion.strip().splitlines():
-            fh.write(f"    {l}\n")
+    content = (f"\n{'=' * 60}\n[{_med_ts()}]\n"
+               f"  Tool: media_tool.py\n  Function: {fn_sig}\n  Line: {lineno}\n"
+               f"  Root cause: {root_cause}\n  Fix model:\n")
+    content += "".join(f"    {line}\n" for line in suggestion.strip().splitlines())
+    _med_locked_append(path, content)
 
 
 def ocb_audio_analyze_logged(audio_path: str) -> dict:
@@ -1273,7 +1286,8 @@ def ocb_audio_analyze_logged(audio_path: str) -> dict:
 
     asset_name = os.path.basename(audio_path)
     timeline: list = []
-    result: dict = {"asset": asset_name, "findings": {}}
+    result: dict = {"contract": "ocb.v1", "tool": "media-analyzer", "asset": asset_name,
+                    "findings": {}}
     timeline.append(f"START  path={audio_path}")
     t0 = time.perf_counter()
 
@@ -1302,11 +1316,17 @@ def ocb_audio_analyze_logged(audio_path: str) -> dict:
             "# For MP3: subprocess ffmpeg -i input.mp3 -ar 44100 -ac 1 output.wav\n"
             "# Then reload with wavfile.read(output.wav).")
         timeline.append(f"ERROR  LOAD  {root}")
-        _med_timeline_write(asset_name, timeline)
+        result["telemetry"] = {
+            "contract": "ocb.v1", "tool": "media-analyzer", "asset": asset_name,
+            **_med_timeline_write(asset_name, timeline), "events": timeline,
+        }
         return result
 
     if samples is None:
-        _med_timeline_write(asset_name, timeline)
+        result["telemetry"] = {
+            "contract": "ocb.v1", "tool": "media-analyzer", "asset": asset_name,
+            **_med_timeline_write(asset_name, timeline), "events": timeline,
+        }
         return result
 
     # ── FFT sweep ─────────────────────────────────────────────
@@ -1407,7 +1427,10 @@ def ocb_audio_analyze_logged(audio_path: str) -> dict:
 
     elapsed_total = (time.perf_counter() - t0) * 1000
     timeline.append(f"END    total_time={elapsed_total:.2f}ms")
-    _med_timeline_write(asset_name, timeline)
+    result["telemetry"] = {
+        "contract": "ocb.v1", "tool": "media-analyzer", "asset": asset_name,
+        **_med_timeline_write(asset_name, timeline), "events": timeline,
+    }
     return result
 
 
@@ -1425,7 +1448,8 @@ def ocb_video_analyze_logged(
 
     asset_name = os.path.basename(video_path)
     timeline: list = []
-    result: dict = {"asset": asset_name, "findings": {}}
+    result: dict = {"contract": "ocb.v1", "tool": "media-analyzer", "asset": asset_name,
+                    "findings": {}}
     timeline.append(f"START  path={video_path}  interval={frame_interval}  threshold={diff_threshold}")
     t0 = time.perf_counter()
 
@@ -1498,5 +1522,12 @@ def ocb_video_analyze_logged(
 
     elapsed_total = (time.perf_counter() - t0) * 1000
     timeline.append(f"END    total_time={elapsed_total:.2f}ms")
-    _med_timeline_write(asset_name, timeline)
+    result["telemetry"] = {
+        "contract": "ocb.v1", "tool": "media-analyzer", "asset": asset_name,
+        **_med_timeline_write(asset_name, timeline), "events": timeline,
+    }
     return result
+
+
+if __name__ == "__main__":
+    main()

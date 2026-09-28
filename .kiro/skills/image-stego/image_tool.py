@@ -11,6 +11,8 @@ import sys
 import subprocess
 import importlib
 import struct
+import fcntl
+import hashlib
 
 
 # ---------------------------------------------------------------------------
@@ -18,9 +20,9 @@ import struct
 # ---------------------------------------------------------------------------
 
 DEPS = [
-    ("PIL", "Pillow"),
-    ("cv2", "opencv-python"),
-    ("numpy", "numpy"),
+    ("PIL", "Pillow==12.3.0"),
+    ("cv2", "opencv-python==5.0.0.93"),
+    ("numpy", "numpy==2.5.3"),
 ]
 
 
@@ -53,6 +55,14 @@ from PIL import Image, ExifTags
 from PIL.ExifTags import TAGS, GPSTAGS
 
 SEPARATOR = "=" * 65
+
+
+def _decode_raw_text(raw: bytes) -> str:
+    """Decode bytes without dropping invalid UTF-8 sequences."""
+    try:
+        return raw.decode("utf-8", errors="strict")
+    except UnicodeDecodeError:
+        return raw.decode("latin-1", errors="strict")
 
 
 # ---------------------------------------------------------------------------
@@ -259,18 +269,15 @@ def extract_lsb(
     # Try to interpret as text
     text_preview = None
     text_confidence = "LOW"
-    try:
-        decoded = byte_data.decode("utf-8", errors="ignore")
-        printable = "".join(c for c in decoded if c.isprintable() or c in "\n\r\t")
-        if len(printable) > 20:
-            text_preview = printable[:500]
-            printable_ratio = len(printable) / max(len(decoded), 1)
-            if printable_ratio > 0.7:
-                text_confidence = "HIGH"
-            elif printable_ratio > 0.4:
-                text_confidence = "MEDIUM"
-    except Exception:
-        pass
+    decoded = _decode_raw_text(bytes(byte_data))
+    printable = "".join(c for c in decoded if c.isprintable() or c in "\n\r\t")
+    if len(printable) > 20:
+        text_preview = decoded[:500]
+        printable_ratio = len(printable) / max(len(decoded), 1)
+        if printable_ratio > 0.7:
+            text_confidence = "HIGH"
+        elif printable_ratio > 0.4:
+            text_confidence = "MEDIUM"
 
     # Try null-terminated string from beginning
     null_terminated = None
@@ -278,7 +285,7 @@ def extract_lsb(
         null_pos = byte_data.index(b"\x00")
         candidate = byte_data[:null_pos]
         try:
-            null_terminated = candidate.decode("utf-8", errors="replace")
+            null_terminated = _decode_raw_text(bytes(candidate))
         except Exception:
             pass
 
@@ -717,18 +724,18 @@ Examples:
                 str(img_path), args.technique, args.save_planes,
                 args.output, args.lsb_bits, args.verbose
             )
+            telemetry = ocb_image_scan_logged(str(img_path))
+            print(f"[image-stego] Telemetry: {telemetry['telemetry']['timeline_path']}")
     elif args.input:
         scan_image(
             args.input, args.technique, args.save_planes,
             args.output, args.lsb_bits, args.verbose
         )
+        telemetry = ocb_image_scan_logged(args.input)
+        print(f"[image-stego] Telemetry: {telemetry['telemetry']['timeline_path']}")
     else:
         parser.print_help()
         sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()
 
 
 # === OMNI-CIPHER BOT EXTENSION ===
@@ -740,8 +747,9 @@ import datetime as _dt_img
 import traceback as _tb_img
 import time as _time_img
 
-_TIMELINE_DIR_IMG   = "puzzles/logs/timelines"
-_DIAGNOSTIC_DIR_IMG = "puzzles/logs/diagnostics"
+_REPO_ROOT_IMG = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+_TIMELINE_DIR_IMG = os.path.join(_REPO_ROOT_IMG, "puzzles", "logs", "timelines")
+_DIAGNOSTIC_DIR_IMG = os.path.join(_REPO_ROOT_IMG, "puzzles", "logs", "diagnostics")
 
 
 def _img_ensure_dirs() -> None:
@@ -754,32 +762,36 @@ def _img_ts() -> str:
     return _dt_img.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
 
-def _img_timeline_write(asset_name: str, lines: list) -> None:
-    import os
+def _img_locked_append(path: str, content: str) -> None:
+    with open(path, "a", encoding="utf-8") as fh:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        try:
+            fh.write(content)
+            fh.flush()
+            os.fsync(fh.fileno())
+        finally:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+
+
+def _img_timeline_write(asset_name: str, lines: list) -> dict[str, str]:
     _img_ensure_dirs()
     safe = "".join(c if c.isalnum() or c in "._-" else "_" for c in asset_name)
-    path = os.path.join(_TIMELINE_DIR_IMG, f"{safe}.txt")
-    with open(path, "a", encoding="utf-8") as fh:
-        fh.write(f"\n{'─'*60}\n")
-        fh.write(f"[{_img_ts()}]  image-stego  asset={asset_name}\n")
-        for line in lines:
-            fh.write(f"  {line}\n")
+    digest = hashlib.sha256(asset_name.encode("utf-8")).hexdigest()[:12]
+    path = os.path.join(_TIMELINE_DIR_IMG, f"image_{safe}_{digest}.txt")
+    content = f"\n{'-' * 60}\n[{_img_ts()}] image-stego asset={asset_name}\n"
+    content += "".join(f"  {line}\n" for line in lines)
+    _img_locked_append(path, content)
+    return {"timeline_path": path, "diagnostic_path": os.path.join(_DIAGNOSTIC_DIR_IMG, "image_stego_diagnostics.txt")}
 
 
 def _img_diag_write(fn_sig: str, lineno: int, root_cause: str, suggestion: str) -> None:
-    import os
     _img_ensure_dirs()
     path = os.path.join(_DIAGNOSTIC_DIR_IMG, "image_stego_diagnostics.txt")
-    with open(path, "a", encoding="utf-8") as fh:
-        fh.write(f"\n{'═'*60}\n")
-        fh.write(f"[{_img_ts()}]\n")
-        fh.write(f"  Tool       : image_tool.py\n")
-        fh.write(f"  Function   : {fn_sig}\n")
-        fh.write(f"  Line       : {lineno}\n")
-        fh.write(f"  Root cause : {root_cause}\n")
-        fh.write(f"  Fix model  :\n")
-        for l in suggestion.strip().splitlines():
-            fh.write(f"    {l}\n")
+    content = (f"\n{'=' * 60}\n[{_img_ts()}]\n"
+               f"  Tool: image_tool.py\n  Function: {fn_sig}\n  Line: {lineno}\n"
+               f"  Root cause: {root_cause}\n  Fix model:\n")
+    content += "".join(f"    {line}\n" for line in suggestion.strip().splitlines())
+    _img_locked_append(path, content)
 
 
 def ocb_image_scan_logged(img_path: str) -> dict:
@@ -794,7 +806,8 @@ def ocb_image_scan_logged(img_path: str) -> dict:
 
     asset_name = os.path.basename(img_path)
     timeline: list = []
-    result: dict = {"asset": asset_name, "findings": {}}
+    result: dict = {"contract": "ocb.v1", "tool": "image-stego", "asset": asset_name,
+                    "findings": {}}
 
     timeline.append(f"START  path={img_path}")
     t0 = time.perf_counter()
@@ -810,7 +823,7 @@ def ocb_image_scan_logged(img_path: str) -> dict:
             timeline.append(f"EXIF   GPS detected: {exif['GPS']}")
         result["findings"]["exif"] = exif
     except Exception as exc:
-        lineno = _tb_img.extract_tb(exc.__traceback__)[-1].lineno
+        lineno = _tb_img.extract_tb(exc.__traceback__)[-1].lineno or 0
         root   = f"{type(exc).__name__}: {exc}"
         _img_diag_write("extract_exif(img_path)", lineno, root,
             "# extract_exif() failed — likely corrupted EXIF segment.\n"
@@ -829,7 +842,7 @@ def ocb_image_scan_logged(img_path: str) -> dict:
             timeline.append(f"CHUNK  type={c.get('type')}  text={str(c.get('text',''))[:60]!r}")
         result["findings"]["chunks"] = notable
     except Exception as exc:
-        lineno = _tb_img.extract_tb(exc.__traceback__)[-1].lineno
+        lineno = _tb_img.extract_tb(exc.__traceback__)[-1].lineno or 0
         root   = f"{type(exc).__name__}: {exc}"
         _img_diag_write("parse_png_chunks(img_path)", lineno, root,
             "# PNG chunk parse failed — file may not be a valid PNG.\n"
@@ -860,7 +873,7 @@ def ocb_image_scan_logged(img_path: str) -> dict:
         timeline.append(f"LSB    text_preview={_text_preview[:80]!r}")
         result["findings"]["lsb_text_preview"] = _text_preview
     except Exception as exc:
-        lineno = _tb_img.extract_tb(exc.__traceback__)[-1].lineno
+        lineno = _tb_img.extract_tb(exc.__traceback__)[-1].lineno or 0
         root   = f"{type(exc).__name__}: {exc}"
         _img_diag_write("ocb_image_scan_logged → LSB numpy block", lineno, root,
             "# numpy vectorised LSB failed.\n"
@@ -886,7 +899,7 @@ def ocb_image_scan_logged(img_path: str) -> dict:
             for k, v in planes.items() if isinstance(v, dict)
         }
     except Exception as exc:
-        lineno = _tb_img.extract_tb(exc.__traceback__)[-1].lineno
+        lineno = _tb_img.extract_tb(exc.__traceback__)[-1].lineno or 0
         root   = f"{type(exc).__name__}: {exc}"
         _img_diag_write("analyze_color_planes(img_path)", lineno, root,
             "# Color plane analysis failed.\n"
@@ -905,7 +918,7 @@ def ocb_image_scan_logged(img_path: str) -> dict:
             timeline.append(f"STRING   offset={s.get('offset')}  val={s.get('string','')[:60]!r}")
         result["findings"]["strings"] = strings[:20]
     except Exception as exc:
-        lineno = _tb_img.extract_tb(exc.__traceback__)[-1].lineno
+        lineno = _tb_img.extract_tb(exc.__traceback__)[-1].lineno or 0
         root   = f"{type(exc).__name__}: {exc}"
         _img_diag_write("extract_strings(img_path)", lineno, root,
             "# String extraction from pixel bytes failed.\n"
@@ -916,5 +929,12 @@ def ocb_image_scan_logged(img_path: str) -> dict:
 
     elapsed_total = (time.perf_counter() - t0) * 1000
     timeline.append(f"END    total_time={elapsed_total:.2f}ms")
-    _img_timeline_write(asset_name, timeline)
+    result["telemetry"] = {
+        "contract": "ocb.v1", "tool": "image-stego", "asset": asset_name,
+        **_img_timeline_write(asset_name, timeline), "events": timeline,
+    }
     return result
+
+
+if __name__ == "__main__":
+    main()

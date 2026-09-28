@@ -1,0 +1,7 @@
+
+------------------------------------------------------------
+[2026-09-28 23:19:31.905] cipher-engine asset=contract
+  START input_len=8 preview='SGVsbG8='
+  LAYER depth=0 cipher=base64 conf=HIGH len_in=8 len_out=5 time=0.02ms
+  LAYER depth=1 cipher=caesar conf=HIGH (shift=14) len_in=5 len_out=5 time=0.10ms
+  END final_len=5 total_time=1.08ms
