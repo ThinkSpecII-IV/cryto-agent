@@ -593,18 +593,11 @@ def extract_audio_lsb(samples: np.ndarray, sample_rate: int) -> dict:
     else:
         int_samples = samples
 
-    # Extract LSBs
-    lsb_bits: list[int] = []
-    for sample in int_samples:
-        lsb_bits.append(int(sample) & 1)
-
-    # Pack into bytes
-    byte_data = bytearray()
-    for i in range(0, len(lsb_bits) - 7, 8):
-        byte_val = 0
-        for j in range(8):
-            byte_val = (byte_val << 1) | lsb_bits[i + j]
-        byte_data.append(byte_val)
+    # Extract LSBs — vectorized: isolate bit-0 of every int16 sample,
+    # then np.packbits assembles groups of 8 bits into bytes (MSB-first).
+    lsb_plane = (int_samples.view(np.uint16) & np.uint16(1)).astype(np.uint8)
+    trim = (lsb_plane.size // 8) * 8
+    byte_data = bytearray(np.packbits(lsb_plane[:trim]))
 
     # Try to interpret as text
     text_preview = None
@@ -619,7 +612,7 @@ def extract_audio_lsb(samples: np.ndarray, sample_rate: int) -> dict:
 
     return {
         "total_samples": len(int_samples),
-        "total_lsb_bits": len(lsb_bits),
+        "total_lsb_bits": len(lsb_plane),
         "total_bytes": len(byte_data),
         "hex_preview": byte_data[:64].hex(),
         "text_preview": text_preview,

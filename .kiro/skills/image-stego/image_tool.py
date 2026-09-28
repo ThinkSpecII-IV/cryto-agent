@@ -229,22 +229,31 @@ def extract_lsb(
     # Build bit mask for requested LSB depth
     mask = (1 << bits_per_channel) - 1
 
-    extracted_bits: list[int] = []
-    for row in pixels:
-        for pixel in row:
-            for ch in range(min(channels, 4)):  # R, G, B, A
-                for bit in range(bits_per_channel - 1, -1, -1):
-                    extracted_bits.append((int(pixel[ch]) >> bit) & 1)
+    # --- vectorized replacement for 4-nested Python loops ---
+    # Slice the first min(channels,4) planes, shape (H, W, C).
+    # For each requested bit depth we shift right by (bit_pos) and AND with 1,
+    # producing one bit-plane per (channel, bit_pos) pair in row-major order.
+    n_ch = min(channels, 4)
+    planes = pixels[:, :, :n_ch].astype(np.uint8)   # (H, W, C) uint8
 
-    # Pack bits into bytes (MSB first)
-    byte_data = bytearray()
-    for i in range(0, len(extracted_bits) - 7, 8):
-        byte_val = 0
-        for j in range(8):
-            byte_val = (byte_val << 1) | extracted_bits[i + j]
-        byte_data.append(byte_val)
+    if bits_per_channel == 1:
+        # Common fast path: just the LSB of each channel pixel
+        # Shape (H, W, C) -> flatten to 1-D bit array
+        bit_planes = (planes & 1).reshape(-1)          # (H*W*C,) uint8 0/1
+    else:
+        # General path: extract bits_per_channel bits per pixel per channel,
+        # MSB-first within each pixel's bit group.
+        bit_shifts = np.arange(bits_per_channel - 1, -1, -1, dtype=np.uint8)
+        # planes: (H, W, C), bit_shifts: (B,) -> broadcast to (H, W, C, B)
+        bit_planes = ((planes[:, :, :, np.newaxis] >> bit_shifts) & 1
+                      ).reshape(-1).astype(np.uint8)   # (H*W*C*B,)
 
-    total_bits = len(extracted_bits)
+    total_bits = len(bit_planes)
+
+    # Pack bits into bytes with np.packbits (MSB-first, same as the original loop)
+    # Trim to a multiple of 8 before packing so no phantom zero-padding bytes appear.
+    trim = (total_bits // 8) * 8
+    byte_data = bytearray(np.packbits(bit_planes[:trim]))
     total_bytes = len(byte_data)
 
     # Try to interpret as text
@@ -622,13 +631,11 @@ def scan_image(
                 for ch_idx, ch_name in enumerate(channel_names):
                     plane = img_rgb[:, :, ch_idx]
                     # Extract LSBs in row-major order, pack into bytes
-                    lsb_bits_arr = (plane.flatten() & 1).tolist()
-                    byte_vals = bytearray()
-                    for i in range(0, len(lsb_bits_arr) - 7, 8):
-                        byte_val = 0
-                        for j in range(8):
-                            byte_val = (byte_val << 1) | lsb_bits_arr[i + j]
-                        byte_vals.append(byte_val)
+                    # Vectorized: isolate LSB plane, trim to multiple of 8,
+                    # then let np.packbits assemble the bytes (MSB-first).
+                    lsb_plane = (plane.flatten() & np.uint8(1))
+                    trim = (lsb_plane.size // 8) * 8
+                    byte_vals = bytearray(np.packbits(lsb_plane[:trim]))
                     # Extract printable ASCII strings longer than 4 chars
                     current_run: list[int] = []
                     strings_found: list[str] = []
