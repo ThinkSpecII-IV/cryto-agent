@@ -24,6 +24,7 @@ import time
 import urllib.parse
 from collections import Counter
 from functools import lru_cache
+from pathlib import Path
 from typing import Optional
 
 
@@ -579,6 +580,17 @@ def _cipher_main() -> None:
 	parser.add_argument("--output", "-o", help="Write results to file")
 	parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
 	args = parser.parse_args()
+	if args.key or args.cipher:
+		record_resource_insufficiency(
+			"cipher-engine",
+			Path(__file__),
+			"manually overridden cipher decoding",
+			"Automatic cipher detection or key estimation was bypassed for this invocation.",
+			[
+				"Expand key-length scoring and language models for the detected cipher family.",
+				"Add confidence reporting and preserve punctuation during candidate scoring.",
+			],
+		)
 
 	if args.file:
 		try:
@@ -674,19 +686,15 @@ def _apex_emit_transaction(state: str, detail: str) -> None:
 			print(f"[cipher-engine] Telemetry write failed: {type(error).__name__}: {error}", file=sys.stderr)
 
 
+_LIFECYCLE_IMPORT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if _LIFECYCLE_IMPORT_DIR not in sys.path:
+	sys.path.insert(0, _LIFECYCLE_IMPORT_DIR)
+from apex_lifecycle import record_resource_insufficiency, run_cli
+
+
+# === OMNI-CIPHER APEX LIFECYCLE AGENT ===
 def main() -> None:
-	try:
-		_cipher_main()
-	except SystemExit as error:
-		state = "COMPLETED" if error.code in (None, 0) else "FAILED"
-		_apex_emit_transaction(state, f"cli_exit={error.code!r}")
-		raise
-	except Exception as error:
-		_apex_emit_transaction("ERROR", f"{type(error).__name__}: {error}")
-		print(f"[cipher-engine] ERROR: {type(error).__name__}: {error}", file=sys.stderr)
-		raise SystemExit(1) from None
-	else:
-		_apex_emit_transaction("COMPLETED", "cli_exit=0")
+	run_cli("cipher-engine", __file__, _cipher_main, _apex_emit_transaction)
 
 
 if __name__ == "__main__":

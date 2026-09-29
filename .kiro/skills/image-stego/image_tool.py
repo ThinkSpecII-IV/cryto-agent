@@ -709,6 +709,20 @@ Examples:
 
     args = parser.parse_args()
 
+    if args.lsb_bits != 1:
+        from apex_lifecycle import record_resource_insufficiency
+
+        record_resource_insufficiency(
+            "image-stego",
+            Path(__file__),
+            "manually selected image LSB depth",
+            "Default one-bit extraction was overridden; the asset may use a nonstandard bit plane.",
+            [
+                "Probe all channel and bit-plane combinations with confidence-ranked candidates.",
+                "Add payload-boundary and encoding detection before text classification.",
+            ],
+        )
+
     if args.dir:
         target_dir = Path(args.dir)
         if not target_dir.is_dir():
@@ -963,19 +977,15 @@ def _apex_emit_transaction(state: str, detail: str) -> None:
             print(f"[image-stego] Telemetry write failed: {type(error).__name__}: {error}", file=sys.stderr)
 
 
+_LIFECYCLE_IMPORT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if _LIFECYCLE_IMPORT_DIR not in sys.path:
+    sys.path.insert(0, _LIFECYCLE_IMPORT_DIR)
+from apex_lifecycle import record_resource_insufficiency, run_cli
+
+
+# === OMNI-CIPHER APEX LIFECYCLE AGENT ===
 def main() -> None:
-    try:
-        _image_main()
-    except SystemExit as error:
-        state = "COMPLETED" if error.code in (None, 0) else "FAILED"
-        _apex_emit_transaction(state, f"cli_exit={error.code!r}")
-        raise
-    except Exception as error:
-        _apex_emit_transaction("ERROR", f"{type(error).__name__}: {error}")
-        print(f"[image-stego] ERROR: {type(error).__name__}: {error}", file=sys.stderr)
-        raise SystemExit(1) from None
-    else:
-        _apex_emit_transaction("COMPLETED", "cli_exit=0")
+    run_cli("image-stego", __file__, _image_main, _apex_emit_transaction)
 
 
 if __name__ == "__main__":
