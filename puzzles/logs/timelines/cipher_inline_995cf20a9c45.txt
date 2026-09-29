@@ -5,3 +5,9 @@
   LAYER depth=0 cipher=base64 conf=HIGH len_in=8 len_out=5 time=0.02ms
   LAYER depth=1 cipher=caesar conf=HIGH (shift=14) len_in=5 len_out=5 time=0.13ms
   END final_len=5 total_time=1.09ms
+
+------------------------------------------------------------
+[2026-09-29 23:50:40.991] cipher-engine asset=inline
+  START input_len=18 preview='KTRATINHOC2026-@!#'
+  LAYER depth=0 cipher=base85 conf=HIGH len_in=18 len_out=14 time=0.11ms
+  END final_len=14 total_time=1.46ms

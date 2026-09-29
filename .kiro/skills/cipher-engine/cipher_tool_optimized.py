@@ -128,6 +128,58 @@ def encode_base32(value: str) -> str:
 	return base64.b32encode(value.encode("utf-8")).decode("ascii")
 
 
+# === OMNI-CIPHER APEX CORE UPDATE: DUAL INTERFACE ===
+def decode_base85(value: str) -> Optional[str]:
+	try:
+		clean = re.sub(r"\s+", "", value.strip())
+		return _decode_raw_text(base64.b85decode(clean.encode("ascii")))
+	except (binascii.Error, ValueError, UnicodeError):
+		return None
+
+
+def encode_base85(value: str) -> str:
+	return base64.b85encode(value.encode("utf-8")).decode("ascii")
+
+
+_ZERO_WIDTH_ZERO = "\u200c"
+_ZERO_WIDTH_ONE = "\u200d"
+
+
+def extract_zero_width(value: str) -> dict[str, object]:
+	"""Extract U+200C/U+200D tokens and decode complete MSB-first bytes."""
+	bits = "".join(
+		"1" if character == _ZERO_WIDTH_ONE else "0"
+		for character in value
+		if character in (_ZERO_WIDTH_ZERO, _ZERO_WIDTH_ONE)
+	)
+	complete_bits = len(bits) - len(bits) % 8
+	raw = bytes(
+		int(bits[offset:offset + 8], 2)
+		for offset in range(0, complete_bits, 8)
+	)
+	return {
+		"token_count": len(bits),
+		"bits": bits,
+		"trailing_bits": len(bits) - complete_bits,
+		"raw_bytes": raw,
+		"text": _decode_raw_text(raw),
+	}
+
+
+def decode_zero_width(value: str) -> Optional[str]:
+	extraction = extract_zero_width(value)
+	return extraction["text"] if extraction["token_count"] >= 8 else None
+
+
+def encode_zero_width(value: str) -> str:
+	raw = value.encode("latin-1", errors="strict")
+	return "".join(
+		_ZERO_WIDTH_ONE if byte & (1 << bit) else _ZERO_WIDTH_ZERO
+		for byte in raw
+		for bit in range(7, -1, -1)
+	)
+
+
 def decode_hex(value: str) -> Optional[str]:
 	try:
 		clean = re.sub(r"[\s\-:]", "", value.strip())
@@ -275,6 +327,10 @@ def encode_url(value: str) -> str:
 def detect_cipher(value: str) -> list[tuple[str, str]]:
 	candidates: list[tuple[str, str]] = []
 	stripped = value.strip()
+	zero_width = extract_zero_width(value)
+	if zero_width["token_count"] >= 8:
+		confidence = "HIGH" if zero_width["trailing_bits"] == 0 else "MEDIUM"
+		candidates.append(("zero-width", confidence))
 	if re.fullmatch(r"[A-Za-z0-9+/\-_=\s]+", stripped):
 		clean = re.sub(r"\s", "", stripped)
 		if len(clean) % 4 in (0, 2, 3):
@@ -285,6 +341,11 @@ def detect_cipher(value: str) -> list[tuple[str, str]]:
 		decoded = decode_base32(stripped)
 		if decoded:
 			candidates.append(("base32", "HIGH"))
+	if re.fullmatch(r"[!-~]+", re.sub(r"\s+", "", stripped)):
+		decoded = decode_base85(stripped)
+		if decoded:
+			confidence = "HIGH" if score_english(decoded) > -50 else "LOW"
+			candidates.append(("base85", confidence))
 	clean_hex = re.sub(r"[\s\-:]", "", stripped)
 	if clean_hex.startswith(("0x", "0X")):
 		clean_hex = clean_hex[2:]
@@ -339,19 +400,23 @@ def apply_cipher(text: str, cipher: str, mode: str = "decode", key: Optional[str
 	cipher_name = cipher.lower().split()[0]
 	if mode == "encode":
 		dispatch = {
-			"base64": encode_base64, "base32": encode_base32, "hex": encode_hex,
+			"base64": encode_base64, "base32": encode_base32, "base85": encode_base85, "hex": encode_hex,
 			"binary": encode_binary, "rot13": decode_rot13, "atbash": decode_atbash,
 			"morse": encode_morse, "url": encode_url,
 			"caesar": lambda value: decode_caesar(value, -(int(key) if key else 3) % 26)[0],
 			"vigenere": lambda value: _encode_vigenere(value, key or "KEY"),
+			"zero-width": encode_zero_width, "zerowidth": encode_zero_width,
+			"ascii256": lambda value: decode_caesar_ascii256(value, -int(key or 1)),
 		}
 	else:
 		dispatch = {
-			"base64": decode_base64, "base32": decode_base32, "hex": decode_hex,
+			"base64": decode_base64, "base32": decode_base32, "base85": decode_base85, "hex": decode_hex,
 			"binary": decode_binary, "rot13": decode_rot13, "atbash": decode_atbash,
 			"morse": decode_morse, "url": decode_url,
 			"caesar": lambda value: decode_caesar(value, int(key) if key else None)[0],
 			"vigenere": lambda value: decode_vigenere(value, key)[0],
+			"zero-width": decode_zero_width, "zerowidth": decode_zero_width,
+			"ascii256": lambda value: decode_caesar_ascii256(value, int(key or 1)),
 		}
 	function = dispatch.get(cipher_name)
 	if function is None:
@@ -421,6 +486,11 @@ def solve_multi_layer_cipher(cipher_text: str) -> dict:
 	current = (match.group(1) if match else cipher_text).strip()
 	steps: list[str] = []
 	for layer in range(1, 6):
+		zero_width_text = decode_zero_width(current)
+		if zero_width_text and zero_width_text != current:
+			current = zero_width_text
+			steps.append(f"Layer {layer} [Zero-width]: {current}")
+			continue
 		try:
 			decoded = _b64_decode_raw_safe(current)
 			if len(decoded) > 2 and any(char.isalnum() for char in decoded):
@@ -429,6 +499,16 @@ def solve_multi_layer_cipher(cipher_text: str) -> dict:
 				continue
 		except (binascii.Error, ValueError, UnicodeError):
 			pass
+		decoded_base32 = decode_base32(current)
+		if decoded_base32 and decoded_base32 != current:
+			current = decoded_base32
+			steps.append(f"Layer {layer} [Base32]: {current}")
+			continue
+		decoded_base85 = decode_base85(current)
+		if decoded_base85 and decoded_base85 != current:
+			current = decoded_base85
+			steps.append(f"Layer {layer} [Base85]: {current}")
+			continue
 		try:
 			clean_hex = current.replace(" ", "").replace("0x", "")
 			decoded = _decode_raw_text(bytes.fromhex(clean_hex))
@@ -626,6 +706,14 @@ def _cipher_main() -> None:
 		if result is None:
 			print(f"[cipher-engine] Failed to apply cipher '{args.cipher}'.")
 			raise SystemExit(1)
+		append_record(
+			"ALGORITHM_OPERATION",
+			tool="cipher-engine",
+			source=Path(__file__),
+			state="COMPLETED",
+			details={"algorithm": args.cipher.lower(), "mode": args.mode,
+					 "input_characters": len(text), "output_characters": len(result)},
+		)
 		print(f"\n{SEPARATOR}\n   Cipher: {args.cipher.upper()} | Mode: {args.mode.upper()}\n{SEPARATOR}")
 		print(f"Input:  {text[:120]}\nOutput: {result[:400]}\n{SEPARATOR}")
 		output_lines.append(result)
@@ -635,6 +723,14 @@ def _cipher_main() -> None:
 			cipher: result for cipher, _ in detections if cipher != "plaintext"
 			if (result := apply_cipher(text, cipher, "decode", args.key, args.verbose))
 		}
+		append_record(
+			"ALGORITHM_OPERATION",
+			tool="cipher-engine",
+			source=Path(__file__),
+			state="COMPLETED",
+			details={"algorithms_detected": [name for name, _ in detections],
+					 "algorithms_applied": list(decoded_results), "mode": "decode"},
+		)
 		if not decoded_results:
 			decoded_results["plaintext"] = text
 		print_results(text, detections, decoded_results,
@@ -689,7 +785,7 @@ def _apex_emit_transaction(state: str, detail: str) -> None:
 _LIFECYCLE_IMPORT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _LIFECYCLE_IMPORT_DIR not in sys.path:
 	sys.path.insert(0, _LIFECYCLE_IMPORT_DIR)
-from apex_lifecycle import record_resource_insufficiency, run_cli
+from apex_lifecycle import append_record, record_resource_insufficiency, run_cli
 
 
 # === OMNI-CIPHER APEX LIFECYCLE AGENT ===

@@ -1,0 +1,203 @@
+#!/usr/bin/env python3
+"""Omni-Cipher terminal launcher and optional local HUD server."""
+
+from __future__ import annotations
+
+import argparse
+import functools
+import http.server
+import json
+import os
+import socket
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+import webbrowser
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parent
+PUZZLES = ROOT / "puzzles"
+HUD = PUZZLES / "omni_hud.html"
+SKILLS = ROOT / ".kiro" / "skills"
+LIFECYCLE_MODULES = ROOT / ".kiro" / "skills"
+if str(LIFECYCLE_MODULES) not in sys.path:
+	sys.path.insert(0, str(LIFECYCLE_MODULES))
+
+from apex_lifecycle import append_record
+
+
+def record(event: str, state: str, details: dict | None = None) -> None:
+	append_record(
+		event,
+		tool="boot-launcher",
+		source=Path(__file__),
+		state=state,
+		details=details or {},
+	)
+
+
+class HudHandler(http.server.SimpleHTTPRequestHandler):
+	def log_message(self, format_string: str, *args: object) -> None:
+		record("WEB_HTTP_ACCESS", "SERVED", {"request": format_string % args})
+
+
+def _hud_url() -> str:
+	return "http://127.0.0.1:8000/omni_hud.html"
+
+
+def _hud_is_served() -> bool:
+	try:
+		with urllib.request.urlopen(_hud_url(), timeout=0.5) as response:
+			return response.status == 200
+	except (OSError, urllib.error.URLError):
+		return False
+
+
+def _serve_hud() -> int:
+	if not HUD.is_file():
+		record("WEB_SERVER_FAILURE", "ERROR", {"reason": "HUD document not found", "path": str(HUD)})
+		print(f"HUD document not found: {HUD}", file=sys.stderr)
+		return 1
+	handler = functools.partial(HudHandler, directory=str(PUZZLES))
+	try:
+		server = http.server.ThreadingHTTPServer(("127.0.0.1", 8000), handler)
+	except OSError as error:
+		record("WEB_SERVER_FAILURE", "ERROR", {"error_type": type(error).__name__, "message": str(error)})
+		print(f"Could not bind local HUD server on port 8000: {error}", file=sys.stderr)
+		return 1
+	record("WEB_SERVER_STARTED", "RUNNING", {"address": "127.0.0.1", "port": 8000, "root": str(PUZZLES)})
+	print(f"OMNI HUD available at {_hud_url()} (Ctrl+C to stop)")
+	try:
+		server.serve_forever(poll_interval=0.5)
+	except KeyboardInterrupt:
+		pass
+	finally:
+		server.server_close()
+		record("WEB_SERVER_STOPPED", "COMPLETED", {"port": 8000})
+	return 0
+
+
+def launch_web() -> int:
+	if not HUD.is_file():
+		record("WEB_LAUNCH_FAILURE", "ERROR", {"reason": "HUD document not found", "path": str(HUD)})
+		print(f"HUD document not found: {HUD}", file=sys.stderr)
+		return 1
+	if not _hud_is_served():
+		command = [sys.executable, str(Path(__file__).resolve()), "--serve"]
+		try:
+			subprocess.Popen(
+				command,
+				cwd=ROOT,
+				stdin=subprocess.DEVNULL,
+				stdout=subprocess.DEVNULL,
+				stderr=subprocess.DEVNULL,
+				start_new_session=True,
+				close_fds=True,
+			)
+		except OSError as error:
+			record("WEB_LAUNCH_FAILURE", "ERROR", {"error_type": type(error).__name__, "message": str(error)})
+			print(f"Could not start local HUD server: {error}", file=sys.stderr)
+			return 1
+
+		deadline = time.monotonic() + 5.0
+		while time.monotonic() < deadline and not _hud_is_served():
+			time.sleep(0.1)
+		if not _hud_is_served():
+			record("WEB_LAUNCH_FAILURE", "ERROR", {"reason": "server did not become ready", "url": _hud_url()})
+			print("Local HUD server did not become ready on port 8000.", file=sys.stderr)
+			return 1
+	try:
+		opened = webbrowser.open(_hud_url(), new=2)
+	except Exception as error:
+		record("WEB_BROWSER_FAILURE", "ERROR", {"error_type": type(error).__name__, "message": str(error)})
+		print(f"HUD server is ready at {_hud_url()}, but browser launch failed: {error}", file=sys.stderr)
+		return 1
+	record("WEB_HUD_OPENED", "COMPLETED", {"url": _hud_url(), "browser_opened": bool(opened)})
+	print(f"HUD: {_hud_url()}")
+	return 0
+
+
+def _run_tool(label: str, command: list[str], target: str) -> None:
+	record("TERMINAL_TOOL_SELECTED", "STARTED", {"skill": label, "target": target})
+	try:
+		completed = subprocess.run(command, cwd=ROOT, check=False)
+		record("SUBPROCESS_RESULT", "COMPLETED" if completed.returncode == 0 else "FAILED",
+			   {"skill": label, "return_code": completed.returncode})
+	except OSError as error:
+		record("FLAWS_INCIDENT_REPORT", "OPEN", {
+			"skill": label,
+			"target": target,
+			"error_type": type(error).__name__,
+			"message": str(error),
+			"recommendations": ["Confirm the selected interpreter and skill script are available."],
+		})
+		print(f"Could not launch {label}: {error}", file=sys.stderr)
+
+
+def terminal_menu() -> int:
+	record("TERMINAL_MENU_OPENED", "READY")
+	print("\n+--------------------------------------------------------------+")
+	print("|                 OMNI-CIPHER / CONTROL DECK                 |")
+	print("+--------------------------------------------------------------+")
+	print("|  1  Text / cipher engine                                    |")
+	print("|  2  Image / steganography scanner                           |")
+	print("|  3  Media / audio-video analyzer                            |")
+	print("|  4  Open browser HUD                                        |")
+	print("|  0  Exit                                                    |")
+	print("+--------------------------------------------------------------+")
+	try:
+		choice = input("Select a skill [0-4]: ").strip()
+		if choice == "0":
+			record("TERMINAL_MENU_EXIT", "COMPLETED")
+			return 0
+		if choice == "4":
+			return launch_web()
+		options = {
+			"1": ("Text", SKILLS / "cipher-engine" / "cipher_tool_optimized.py"),
+			"2": ("Image", SKILLS / "image-stego" / "image_tool.py"),
+			"3": ("Media", SKILLS / "media-analyzer" / "media_tool.py"),
+		}
+		if choice not in options:
+			print("Select one of the listed skill numbers.")
+			record("TERMINAL_MENU_INVALID_SELECTION", "RETRY", {"selection": choice})
+			return 2
+		label, script = options[choice]
+		target = input(f"Path to {label.lower()} asset: ").strip()
+		if not target:
+			record("RESOURCE INSUFFICIENCY FAULT", "RECOMMENDATION_REQUIRED", {
+				"puzzle_class": f"{label.lower()} analysis without an asset path",
+				"structural_gap": "The selected tool cannot begin analysis without an input asset.",
+				"recommended_patches": ["Provide a readable local file path and rerun the selected skill."],
+			})
+			print("An asset path is required.")
+			return 2
+		if label == "Text":
+			command = [sys.executable, str(script), "--file", target, "--chain"]
+		else:
+			command = [sys.executable, str(script), "--input", target]
+		_run_tool(label, command, target)
+		return 0
+	except (EOFError, KeyboardInterrupt):
+		print("\nReturning to shell.")
+		record("TERMINAL_MENU_EXIT", "INTERRUPTED")
+		return 130
+
+
+def main() -> int:
+	parser = argparse.ArgumentParser(description="Omni-Cipher terminal menu or browser HUD")
+	parser.add_argument("--web", "-w", action="store_true", help="Start the localhost HUD and open it in a browser")
+	parser.add_argument("--serve", action="store_true", help=argparse.SUPPRESS)
+	args = parser.parse_args()
+	if args.serve:
+		return _serve_hud()
+	if args.web:
+		return launch_web()
+	return terminal_menu()
+
+
+# === OMNI-CIPHER APEX CORE UPDATE: DUAL INTERFACE ===
+if __name__ == "__main__":
+	raise SystemExit(main())
