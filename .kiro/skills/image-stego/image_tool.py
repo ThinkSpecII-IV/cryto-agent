@@ -13,6 +13,7 @@ import importlib
 import struct
 import fcntl
 import hashlib
+import json
 
 
 # ---------------------------------------------------------------------------
@@ -23,6 +24,7 @@ DEPS = [
     ("PIL", "Pillow==12.3.0"),
     ("cv2", "opencv-python==5.0.0.93"),
     ("numpy", "numpy==2.5.3"),
+    ("stego_lsb", "stego-lsb==1.7.1"),
 ]
 
 
@@ -58,11 +60,8 @@ SEPARATOR = "=" * 65
 
 
 def _decode_raw_text(raw: bytes) -> str:
-    """Decode bytes without dropping invalid UTF-8 sequences."""
-    try:
-        return raw.decode("utf-8", errors="strict")
-    except UnicodeDecodeError:
-        return raw.decode("latin-1", errors="strict")
+    """Decode every raw byte losslessly using the Latin-1 mapping."""
+    return raw.decode("latin-1", errors="strict")
 
 
 # ---------------------------------------------------------------------------
@@ -115,7 +114,7 @@ def extract_exif(img_path: str, verbose: bool = False) -> dict:
                 else:
                     if isinstance(value, bytes):
                         try:
-                            value = value.decode("utf-8", errors="replace").rstrip("\x00")
+                            value = _decode_raw_text(value).rstrip("\x00")
                         except Exception:
                             value = value.hex()
                     findings[tag_name] = str(value)[:500]
@@ -163,7 +162,7 @@ def parse_png_chunks(img_path: str) -> list[dict]:
                     try:
                         null_pos = data.index(b"\x00")
                         keyword = data[:null_pos].decode("latin-1")
-                        text = data[null_pos + 1:].decode("latin-1", errors="replace")
+                        text = _decode_raw_text(data[null_pos + 1:])
                         chunk_info["keyword"] = keyword
                         chunk_info["text"] = text
                     except Exception as e:
@@ -175,7 +174,7 @@ def parse_png_chunks(img_path: str) -> list[dict]:
                         null_pos = data.index(b"\x00")
                         keyword = data[:null_pos].decode("latin-1")
                         compressed = data[null_pos + 2:]
-                        text = zlib.decompress(compressed).decode("utf-8", errors="replace")
+                        text = _decode_raw_text(zlib.decompress(compressed))
                         chunk_info["keyword"] = keyword
                         chunk_info["text"] = text
                     except Exception as e:
@@ -184,7 +183,7 @@ def parse_png_chunks(img_path: str) -> list[dict]:
 
                 elif chunk_type == "iTXt":
                     try:
-                        chunk_info["text"] = data.decode("utf-8", errors="replace")[:500]
+                        chunk_info["text"] = _decode_raw_text(data)[:500]
                     except Exception:
                         chunk_info["raw"] = data[:64].hex()
 
@@ -289,6 +288,22 @@ def extract_lsb(
         except Exception:
             pass
 
+    # The optional library understands its own length-tagged LSB format.
+    # Keep the native raw bit-plane extraction as the dependency-free fallback.
+    stego_lsb_payload = None
+    stego_lsb_error = None
+    try:
+        from stego_lsb import LSBSteg
+
+        with Image.open(img_path) as source_image:
+            stego_lsb_payload = bytes(
+                LSBSteg.recover_message_from_image(source_image, bits_per_channel)
+            )
+    except ImportError as error:
+        stego_lsb_error = f"unavailable: {error}"
+    except Exception as error:
+        stego_lsb_error = f"{type(error).__name__}: {error}"
+
     return {
         "total_bits": total_bits,
         "total_bytes": total_bytes,
@@ -298,6 +313,8 @@ def extract_lsb(
         "null_terminated_string": null_terminated,
         "raw_bytes": bytes(byte_data),
         "hex_preview": byte_data[:64].hex(),
+        "stego_lsb_payload": stego_lsb_payload,
+        "stego_lsb_error": stego_lsb_error,
     }
 
 
@@ -405,6 +422,23 @@ def analyze_color_planes(
 # String extraction from pixel data
 # ---------------------------------------------------------------------------
 
+def _extract_ascii_runs(raw: bytes, min_length: int) -> list[dict]:
+    """Find printable ASCII spans with vectorized boundary indexing."""
+    byte_values = np.frombuffer(raw, dtype=np.uint8)
+    printable = (byte_values >= 0x20) & (byte_values <= 0x7E)
+    boundaries = np.diff(np.pad(printable.astype(np.int8), (1, 1)))
+    starts = np.flatnonzero(boundaries == 1)
+    ends = np.flatnonzero(boundaries == -1)
+    return [
+        {
+            "offset": f"0x{start:06X}",
+            "length": int(end - start),
+            "string": raw[start:min(end, start + 200)].decode("ascii"),
+        }
+        for start, end in zip(starts, ends)
+        if end - start >= min_length
+    ]
+
 def extract_strings(
     img_path: str,
     min_length: int = 6,
@@ -417,33 +451,7 @@ def extract_strings(
     except Exception as e:
         return [{"error": str(e)}]
 
-    strings_found: list[dict] = []
-    current: list[int] = []
-    start_offset = 0
-
-    for i, byte in enumerate(raw):
-        if 0x20 <= byte <= 0x7E:  # Printable ASCII
-            if not current:
-                start_offset = i
-            current.append(byte)
-        else:
-            if len(current) >= min_length:
-                s = bytes(current).decode("ascii")
-                strings_found.append({
-                    "offset": f"0x{start_offset:06X}",
-                    "length": len(s),
-                    "string": s[:200],
-                })
-            current = []
-
-    if len(current) >= min_length:
-        strings_found.append({
-            "offset": f"0x{start_offset:06X}",
-            "length": len(current),
-            "string": bytes(current).decode("ascii")[:200],
-        })
-
-    return strings_found
+    return _extract_ascii_runs(raw, min_length)
 
 
 # ---------------------------------------------------------------------------
@@ -644,17 +652,10 @@ def scan_image(
                     trim = (lsb_plane.size // 8) * 8
                     byte_vals = bytearray(np.packbits(lsb_plane[:trim]))
                     # Extract printable ASCII strings longer than 4 chars
-                    current_run: list[int] = []
-                    strings_found: list[str] = []
-                    for b in byte_vals:
-                        if 0x20 <= b <= 0x7E:
-                            current_run.append(b)
-                        else:
-                            if len(current_run) > 4:
-                                strings_found.append(bytes(current_run).decode("ascii"))
-                            current_run = []
-                    if current_run and len(current_run) > 4:
-                        strings_found.append(bytes(current_run).decode("ascii"))
+                    strings_found = [
+                        entry["string"]
+                        for entry in _extract_ascii_runs(bytes(byte_vals), 5)
+                    ]
                     if strings_found:
                         found_any = True
                         print(f"  {ch_name} channel — {len(strings_found)} string(s) found:")
@@ -674,7 +675,7 @@ def scan_image(
 # CLI entry point
 # ---------------------------------------------------------------------------
 
-def main() -> None:
+def _image_main() -> None:
     parser = argparse.ArgumentParser(
         description="Omni-Cipher Bot — Image Steganography Tool",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -934,6 +935,47 @@ def ocb_image_scan_logged(img_path: str) -> dict:
         **_img_timeline_write(asset_name, timeline), "events": timeline,
     }
     return result
+
+
+# === OMNI-CIPHER APEX CORE UNION ===
+def _apex_emit_transaction(state: str, detail: str) -> None:
+    """Best-effort synchronized execution record; telemetry must not stop the CLI."""
+    record = json.dumps({
+        "contract": "ocb.apex.v1",
+        "tool": "image-stego",
+        "state": state,
+        "timestamp": _dt_img.datetime.now().astimezone().isoformat(timespec="milliseconds"),
+        "detail": detail,
+    }, ensure_ascii=False, sort_keys=True) + "\n"
+    for directory in (_TIMELINE_DIR_IMG, _DIAGNOSTIC_DIR_IMG):
+        try:
+            os.makedirs(directory, exist_ok=True)
+            path = os.path.join(directory, "apex_transactions.jsonl")
+            with open(path, "a", encoding="utf-8") as handle:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+                try:
+                    handle.write(record)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                finally:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        except Exception as error:
+            print(f"[image-stego] Telemetry write failed: {type(error).__name__}: {error}", file=sys.stderr)
+
+
+def main() -> None:
+    try:
+        _image_main()
+    except SystemExit as error:
+        state = "COMPLETED" if error.code in (None, 0) else "FAILED"
+        _apex_emit_transaction(state, f"cli_exit={error.code!r}")
+        raise
+    except Exception as error:
+        _apex_emit_transaction("ERROR", f"{type(error).__name__}: {error}")
+        print(f"[image-stego] ERROR: {type(error).__name__}: {error}", file=sys.stderr)
+        raise SystemExit(1) from None
+    else:
+        _apex_emit_transaction("COMPLETED", "cli_exit=0")
 
 
 if __name__ == "__main__":

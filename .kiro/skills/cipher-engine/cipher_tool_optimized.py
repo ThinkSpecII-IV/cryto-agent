@@ -13,7 +13,9 @@ import binascii
 import datetime as _dt
 import fcntl
 import hashlib
+import json
 import math
+import mmap
 import os
 import re
 import string
@@ -98,11 +100,8 @@ def decode_base64(value: str) -> Optional[str]:
 
 
 def _decode_raw_text(raw: bytes) -> str:
-	"""Decode bytes without ever dropping a byte or symbol."""
-	try:
-		return raw.decode("utf-8", errors="strict")
-	except UnicodeDecodeError:
-		return raw.decode("latin-1", errors="strict")
+	"""Decode every raw byte losslessly using the Latin-1 mapping."""
+	return raw.decode("latin-1", errors="strict")
 
 
 def _b64_decode_raw_safe(value: str) -> str:
@@ -569,7 +568,7 @@ def ocb_cipher_chain_logged(text: str, asset_name: str = "inline") -> dict:
 	return result
 
 
-def main() -> None:
+def _cipher_main() -> None:
 	parser = argparse.ArgumentParser(description="Omni-Cipher Bot - Cipher Engine")
 	parser.add_argument("--input", "-i", help="Encoded string (inline)")
 	parser.add_argument("--file", "-f", help="Path to file with encoded content")
@@ -583,8 +582,16 @@ def main() -> None:
 
 	if args.file:
 		try:
-			with open(args.file, "r", encoding="utf-8", errors="replace") as handle:
-				text = handle.read()
+			with open(args.file, "rb") as handle:
+				size = os.fstat(handle.fileno()).st_size
+				if size == 0:
+					text = ""
+				else:
+					with mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ) as mapped:
+						text = "".join(
+							_decode_raw_text(mapped[offset:offset + 1024 * 1024])
+							for offset in range(0, size, 1024 * 1024)
+						)
 		except FileNotFoundError:
 			print(f"[cipher-engine] ERROR: File not found: {args.file}")
 			raise SystemExit(1)
@@ -635,6 +642,51 @@ def main() -> None:
 			print(f"[cipher-engine] Results written to: {args.output}")
 		except OSError as error:
 			print(f"[cipher-engine] WARNING: Could not write output file: {error}")
+
+
+# === OMNI-CIPHER APEX CORE UNION ===
+_APEX_TIMELINE_DIR = os.path.join(_REPO_ROOT, "puzzles", "logs", "timelines")
+_APEX_DIAGNOSTIC_DIR = os.path.join(_REPO_ROOT, "puzzles", "logs", "diagnostics")
+
+
+def _apex_emit_transaction(state: str, detail: str) -> None:
+	"""Best-effort synchronized execution record; telemetry must not stop the CLI."""
+	record = json.dumps({
+		"contract": "ocb.apex.v1",
+		"tool": "cipher-engine",
+		"state": state,
+		"timestamp": _dt.datetime.now().astimezone().isoformat(timespec="milliseconds"),
+		"detail": detail,
+	}, ensure_ascii=False, sort_keys=True) + "\n"
+	for directory in (_APEX_TIMELINE_DIR, _APEX_DIAGNOSTIC_DIR):
+		try:
+			os.makedirs(directory, exist_ok=True)
+			path = os.path.join(directory, "apex_transactions.jsonl")
+			with open(path, "a", encoding="utf-8") as handle:
+				fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+				try:
+					handle.write(record)
+					handle.flush()
+					os.fsync(handle.fileno())
+				finally:
+					fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+		except Exception as error:
+			print(f"[cipher-engine] Telemetry write failed: {type(error).__name__}: {error}", file=sys.stderr)
+
+
+def main() -> None:
+	try:
+		_cipher_main()
+	except SystemExit as error:
+		state = "COMPLETED" if error.code in (None, 0) else "FAILED"
+		_apex_emit_transaction(state, f"cli_exit={error.code!r}")
+		raise
+	except Exception as error:
+		_apex_emit_transaction("ERROR", f"{type(error).__name__}: {error}")
+		print(f"[cipher-engine] ERROR: {type(error).__name__}: {error}", file=sys.stderr)
+		raise SystemExit(1) from None
+	else:
+		_apex_emit_transaction("COMPLETED", "cli_exit=0")
 
 
 if __name__ == "__main__":

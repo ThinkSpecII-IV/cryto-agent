@@ -23,6 +23,7 @@ DEPS = [
     ("scipy", "scipy==1.18.1"),
     ("cv2", "opencv-python==5.0.0.93"),
     ("PIL", "Pillow==12.3.0"),
+    ("stego_lsb", "stego-lsb==1.7.1"),
 ]
 
 
@@ -51,6 +52,7 @@ import wave
 import tempfile
 import fcntl
 import hashlib
+import json
 from pathlib import Path
 from typing import Optional, Union
 
@@ -62,11 +64,8 @@ SEPARATOR = "=" * 65
 
 
 def _decode_raw_text(raw: bytes) -> str:
-    """Decode bytes without dropping invalid UTF-8 sequences."""
-    try:
-        return raw.decode("utf-8", errors="strict")
-    except UnicodeDecodeError:
-        return raw.decode("latin-1", errors="strict")
+    """Decode every raw byte losslessly using the Latin-1 mapping."""
+    return raw.decode("latin-1", errors="strict")
 
 # Lazy scipy imports (used only when needed)
 _scipy_signal = None
@@ -300,7 +299,7 @@ def load_audio_samples(audio_path: str) -> tuple[Optional[np.ndarray], int]:
     if ext == ".wav":
         try:
             wavfile = _get_scipy_wavfile()
-            rate, data = wavfile.read(audio_path)
+            rate, data = wavfile.read(audio_path, mmap=True)
             if data.ndim > 1:
                 data = data.mean(axis=1)
             samples = data.astype(np.float32)
@@ -318,7 +317,7 @@ def load_audio_samples(audio_path: str) -> tuple[Optional[np.ndarray], int]:
         try:
             if convert_audio_to_wav(audio_path, tmp_path):
                 wavfile = _get_scipy_wavfile()
-                rate, data = wavfile.read(tmp_path)
+                rate, data = wavfile.read(tmp_path, mmap=True)
                 if data.ndim > 1:
                     data = data.mean(axis=1)
                 samples = data.astype(np.float32)
@@ -490,18 +489,13 @@ def detect_morse_from_audio(
     on_off = (smoothed > threshold).astype(int)
 
     # Find run lengths (on/off durations in samples)
-    runs: list[tuple[int, int]] = []  # (value, duration_samples)
-    if len(on_off) > 0:
-        current_val = on_off[0]
-        current_len = 1
-        for i in range(1, len(on_off)):
-            if on_off[i] == current_val:
-                current_len += 1
-            else:
-                runs.append((int(current_val), current_len))
-                current_val = on_off[i]
-                current_len = 1
-        runs.append((int(current_val), current_len))
+    transitions = np.flatnonzero(np.diff(on_off)) + 1
+    run_edges = np.concatenate(([0], transitions, [len(on_off)]))
+    runs = [
+        (int(on_off[start]), int(end - start))
+        for start, end in zip(run_edges[:-1], run_edges[1:])
+        if end > start
+    ]
 
     # Filter out very short runs (< 20ms) as noise
     min_samples = int(sample_rate * 0.02)
@@ -595,32 +589,63 @@ def _decode_morse_string(morse: str) -> str:
 # Audio: LSB steganography
 # ---------------------------------------------------------------------------
 
-def extract_audio_lsb(samples: np.ndarray, sample_rate: int) -> dict:
-    """Extract LSB bits from audio PCM samples."""
-    # Convert float samples to int16
-    if samples.dtype != np.int16:
-        int_samples = (samples * 32767).astype(np.int16)
+def _extract_wavsteg_payload(audio_path: str) -> bytes:
+    """Recover the complete interleaved PCM LSB stream through stego-lsb."""
+    from stego_lsb import WavSteg
+
+    with wave.open(audio_path, "rb") as source:
+        sample_count = source.getnframes() * source.getnchannels()
+        payload_size = sample_count // 8
+    with tempfile.TemporaryDirectory(prefix="omni_wavsteg_") as temp_dir:
+        output_path = os.path.join(temp_dir, "recovered.bin")
+        WavSteg.recover_data(audio_path, output_path, 1, payload_size)
+        with open(output_path, "rb") as recovered:
+            return recovered.read()
+
+
+def extract_audio_lsb(
+    samples: np.ndarray,
+    sample_rate: int,
+    source_path: Optional[str] = None,
+) -> dict:
+    """Extract LSB bits from audio PCM samples, preserving WAV channels."""
+    library_payload = None
+    library_error = None
+    pcm_samples = samples
+    if source_path and Path(source_path).suffix.lower() == ".wav":
+        try:
+            library_payload = _extract_wavsteg_payload(source_path)
+        except Exception as error:
+            library_error = f"{type(error).__name__}: {error}"
+            try:
+                _, pcm_samples = _get_scipy_wavfile().read(source_path, mmap=True)
+                pcm_samples = pcm_samples.reshape(-1)
+            except Exception as fallback_error:
+                library_error += f"; mapped PCM fallback failed: {fallback_error}"
+
+    if np.issubdtype(pcm_samples.dtype, np.integer):
+        int_samples = np.asarray(pcm_samples).reshape(-1)
+        unsigned_dtype = np.dtype(f"u{int_samples.dtype.itemsize}")
+        lsb_plane = (int_samples.view(unsigned_dtype) & 1).astype(np.uint8)
     else:
-        int_samples = samples
+        int_samples = np.clip(pcm_samples * 32767, -32768, 32767).astype(np.int16)
+        lsb_plane = (int_samples.view(np.uint16) & np.uint16(1)).astype(np.uint8)
 
-    # Extract LSBs — vectorized: isolate bit-0 of every int16 sample,
-    # then np.packbits assembles groups of 8 bits into bytes (MSB-first).
-    lsb_plane = (int_samples.view(np.uint16) & np.uint16(1)).astype(np.uint8)
     trim = (lsb_plane.size // 8) * 8
-    byte_data = bytearray(np.packbits(lsb_plane[:trim]))
-
-    raw_bytes = bytes(byte_data)
+    fallback_payload = np.packbits(lsb_plane[:trim]).tobytes()
+    raw_bytes = library_payload if library_payload is not None else fallback_payload
     decoded = _decode_raw_text(raw_bytes)
     printable = "".join(c for c in decoded if c.isprintable() or c in "\n\r\t")
     text_preview = decoded[:400] if len(printable) > 10 else None
 
     return {
-        "total_samples": len(int_samples),
+        "total_samples": len(lsb_plane),
         "total_lsb_bits": len(lsb_plane),
-        "total_bytes": len(byte_data),
-        "hex_preview": byte_data[:64].hex(),
+        "total_bytes": len(raw_bytes),
+        "hex_preview": raw_bytes[:64].hex(),
         "text_preview": text_preview,
         "raw_bytes": raw_bytes,
+        "stego_lsb_error": library_error,
     }
 
 
@@ -784,7 +809,7 @@ def analyze_file(
                     if samples is not None:
                         _analyze_audio_content(
                             samples, sample_rate, mode, output_dir or str(Path(file_path).parent),
-                            save_spectrogram, verbose, file_path
+                            save_spectrogram, verbose, tmp_path
                         )
             finally:
                 try:
@@ -818,6 +843,8 @@ def _analyze_audio_content(
     mode: str,
     output_dir: str,
     save_spectrogram: bool,
+    verbose: bool = False,
+    source_path: Optional[str] = None,
 ) -> None:
     """Common audio analysis logic."""
     spec_save_path = None
@@ -834,7 +861,7 @@ def _analyze_audio_content(
         print_morse_results(morse)
 
     if mode in ("all", "lsb-audio"):
-        lsb = extract_audio_lsb(samples, sample_rate)
+        lsb = extract_audio_lsb(samples, sample_rate, source_path)
         print_lsb_audio_results(lsb)
 
     # FFT Enhancement — runs alongside existing spectrogram/morse analysis
@@ -1163,7 +1190,7 @@ def scan_spectrogram_edges(
 # CLI entry point
 # ---------------------------------------------------------------------------
 
-def main() -> None:
+def _media_main() -> None:
     parser = argparse.ArgumentParser(
         description="Omni-Cipher Bot — Media Analyzer",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1401,7 +1428,7 @@ def ocb_audio_analyze_logged(audio_path: str) -> dict:
     # ── LSB audio ─────────────────────────────────────────────
     try:
         t = time.perf_counter()
-        lsb = extract_audio_lsb(samples, sample_rate)
+        lsb = extract_audio_lsb(samples, sample_rate, audio_path)
         ms = (time.perf_counter() - t) * 1000
         timeline.append(f"LSB    samples={lsb.get('total_samples',0):,}  "
                          f"bytes={lsb.get('total_bytes',0):,}  "
@@ -1527,6 +1554,51 @@ def ocb_video_analyze_logged(
         **_med_timeline_write(asset_name, timeline), "events": timeline,
     }
     return result
+
+
+# === OMNI-CIPHER APEX CORE UNION ===
+_APEX_TIMELINE_DIR_MED = os.path.join(_REPO_ROOT_MED, "puzzles", "logs", "timelines")
+_APEX_DIAGNOSTIC_DIR_MED = os.path.join(_REPO_ROOT_MED, "puzzles", "logs", "diagnostics")
+
+
+def _apex_emit_transaction(state: str, detail: str) -> None:
+    """Best-effort synchronized execution record; telemetry must not stop the CLI."""
+    record = json.dumps({
+        "contract": "ocb.apex.v1",
+        "tool": "media-analyzer",
+        "state": state,
+        "timestamp": _dt_med.datetime.now().astimezone().isoformat(timespec="milliseconds"),
+        "detail": detail,
+    }, ensure_ascii=False, sort_keys=True) + "\n"
+    for directory in (_APEX_TIMELINE_DIR_MED, _APEX_DIAGNOSTIC_DIR_MED):
+        try:
+            os.makedirs(directory, exist_ok=True)
+            path = os.path.join(directory, "apex_transactions.jsonl")
+            with open(path, "a", encoding="utf-8") as handle:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+                try:
+                    handle.write(record)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                finally:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        except Exception as error:
+            print(f"[media-analyzer] Telemetry write failed: {type(error).__name__}: {error}", file=sys.stderr)
+
+
+def main() -> None:
+    try:
+        _media_main()
+    except SystemExit as error:
+        state = "COMPLETED" if error.code in (None, 0) else "FAILED"
+        _apex_emit_transaction(state, f"cli_exit={error.code!r}")
+        raise
+    except Exception as error:
+        _apex_emit_transaction("ERROR", f"{type(error).__name__}: {error}")
+        print(f"[media-analyzer] ERROR: {type(error).__name__}: {error}", file=sys.stderr)
+        raise SystemExit(1) from None
+    else:
+        _apex_emit_transaction("COMPLETED", "cli_exit=0")
 
 
 if __name__ == "__main__":
