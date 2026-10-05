@@ -675,6 +675,107 @@ def scan_image(
 # CLI entry point
 # ---------------------------------------------------------------------------
 
+# === OMNI-CIPHER APEX EXTENSION: FORENSIC MATRIX ===
+# Pure informational and educational tools with explicit user control.
+# No background automation, no conditional execution chains.
+# ═══════════════════════════════════════════════════════════════════════
+
+import math
+import shutil
+
+def calculate_shannon_entropy(image_path: str) -> dict:
+    """
+    Calculate Shannon Entropy of image pixel data using vectorized NumPy operations.
+    
+    Shannon Entropy measures the randomness/disorder of pixel values.
+    High entropy (near 8.0 for uint8) suggests random/compressed/encrypted data.
+    Low entropy suggests uniform or patterned data.
+    """
+    try:
+        img = Image.open(image_path)
+        pixel_array = np.array(img).flatten().astype(np.uint8)
+    except Exception as e:
+        return {"error": str(e)}
+    
+    hist, _ = np.histogram(pixel_array, bins=256, range=(0, 256))
+    hist_norm = hist / hist.sum()
+    hist_nonzero = hist_norm[hist_norm > 0]
+    entropy = -np.sum(hist_nonzero * np.log2(hist_nonzero))
+    
+    if entropy < 1.0:
+        interp = "Very low — mostly uniform/blank areas"
+    elif entropy < 3.0:
+        interp = "Low — significant patterns or compression"
+    elif entropy < 6.0:
+        interp = "Moderate — typical natural image"
+    elif entropy < 7.5:
+        interp = "High — possible encryption or random data"
+    else:
+        interp = "Very high — likely random/encrypted payload"
+    
+    return {
+        "entropy_value": round(entropy, 4),
+        "max_possible": 8.0,
+        "interpretation": interp,
+        "pixel_count": len(pixel_array),
+    }
+
+
+def suggest_forensic_tools(image_path: str) -> dict:
+    """
+    Return availability status of common forensic tools on this system.
+    No execution, no automation — only informational.
+    """
+    tools = {
+        "exiftool": "exiftool <file>        # Extract EXIF metadata",
+        "binwalk": "binwalk -e <file>      # Extract embedded files",
+        "foremost": "foremost -i <file> -o <dir>  # Carve file fragments",
+    }
+    
+    available = {}
+    for tool, cmd_example in tools.items():
+        path = shutil.which(tool)
+        available[tool] = {
+            "installed": path is not None,
+            "path": path,
+            "example_command": cmd_example,
+        }
+    
+    return available
+
+
+def print_entropy_report(image_path: str) -> None:
+    """Print a clear, formatted entropy analysis report to stdout."""
+    result = calculate_shannon_entropy(image_path)
+    if "error" in result:
+        print(f"[entropy-scanner] Error: {result['error']}")
+        return
+    
+    print(f"\n[Entropy Analysis — Shannon Information Content]")
+    print(f"  File          : {image_path}")
+    print(f"  Entropy score : {result['entropy_value']:.4f} bits/byte")
+    print(f"  Max possible  : {result['max_possible']} bits/byte")
+    print(f"  Interpretation: {result['interpretation']}")
+    print(f"  Pixels        : {result['pixel_count']:,}")
+
+
+def print_forensic_suggestions(image_path: str) -> None:
+    """Print available forensic tool suggestions without executing anything."""
+    tools = suggest_forensic_tools(image_path)
+    
+    print(f"\n[Optional Forensic Tools — Manual Execution Only]")
+    print(f"  If you want to investigate {image_path} further:")
+    print()
+    
+    for tool, info in tools.items():
+        status = "✓ installed" if info["installed"] else "✗ not found"
+        print(f"  {tool:<12} ({status})")
+        print(f"    → {info['example_command']}")
+    
+    print()
+    print("  To use any tool, copy the command above and run it manually in your terminal.")
+    print("  No automatic execution will occur.")
+
 def _image_main() -> None:
     parser = argparse.ArgumentParser(
         description="Omni-Cipher Bot — Image Steganography Tool",
@@ -706,8 +807,27 @@ Examples:
         help="Number of LSB bits per channel to extract (default: 1)",
     )
     parser.add_argument("--verbose", "-v", action="store_true")
+    parser.add_argument(
+        "--entropy", action="store_true",
+        help="Calculate and display Shannon Entropy of image pixel data",
+    )
+    parser.add_argument(
+        "--suggest-tools", action="store_true",
+        help="Print suggestions for optional forensic tools (exiftool, binwalk, foremost)",
+    )
 
     args = parser.parse_args()
+    
+    # Handle informational flags (no automation, just print suggestions)
+    if args.input and args.entropy:
+        print_entropy_report(args.input)
+    
+    if args.input and args.suggest_tools:
+        print_forensic_suggestions(args.input)
+    
+    # If only info flags were requested, done
+    if args.entropy or args.suggest_tools:
+        return
 
     if args.lsb_bits != 1:
         from apex_lifecycle import record_resource_insufficiency
@@ -990,3 +1110,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+

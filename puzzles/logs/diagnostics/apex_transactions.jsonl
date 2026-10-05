@@ -3,3 +3,6 @@
 {"contract": "ocb.apex.v1", "detail": "cli_exit=0", "state": "COMPLETED", "timestamp": "2026-09-29T22:33:23.127+07:00", "tool": "media-analyzer"}
 {"contract": "ocb.apex.v1", "detail": "cli_exit=0", "state": "COMPLETED", "timestamp": "2026-09-29T22:34:25.484+07:00", "tool": "cipher-engine"}
 {"contract": "ocb.apex.v1", "detail": "cli_exit=0", "state": "COMPLETED", "timestamp": "2026-09-29T23:50:41.029+07:00", "tool": "cipher-engine"}
+{"contract": "ocb.apex.v1", "detail": "NameError: name 'print_entropy_report' is not defined", "state": "ERROR", "timestamp": "2026-10-05T07:30:16.501+07:00", "tool": "image-stego"}
+{"contract": "ocb.apex.v1", "detail": "cli_exit=0", "state": "COMPLETED", "timestamp": "2026-10-05T08:03:46.823+07:00", "tool": "image-stego"}
+{"contract": "ocb.apex.v1", "detail": "cli_exit=0", "state": "COMPLETED", "timestamp": "2026-10-05T08:03:53.690+07:00", "tool": "image-stego"}

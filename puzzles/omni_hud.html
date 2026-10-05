@@ -1,964 +1,434 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="dark">
-  <title>OMNI / Operations Deck</title>
-  <style>
-    :root {
-      color-scheme: dark;
-      --void: #090d16;
-      --panel: #101824;
-      --panel-raised: #141f2d;
-      --line: #26384a;
-      --line-bright: #36576d;
-      --cyan: #00f0ff;
-      --green: #10b981;
-      --amber: #f4b95f;
-      --red: #ff647c;
-      --text: #e5eef5;
-      --muted: #8ba1b3;
-      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-      --display: "Avenir Next", "Arial Narrow", sans-serif;
-      --radius: 5px;
-    }
-
-    * { box-sizing: border-box; }
-    html { min-width: 320px; background: var(--void); }
-    body {
-      margin: 0;
-      color: var(--text);
-      font-family: var(--display);
-      background-color: var(--void);
-      background-image: linear-gradient(rgba(0, 240, 255, .025) 1px, transparent 1px),
-                        linear-gradient(90deg, rgba(0, 240, 255, .025) 1px, transparent 1px);
-      background-size: 32px 32px;
-    }
-    button, input, select, textarea { font: inherit; }
-    button, select, input, textarea { color: var(--text); }
-    button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible,
-    [tabindex]:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
-    button { cursor: pointer; }
-
-    .shell { width: min(1600px, 100%); margin: 0 auto; padding: 22px clamp(14px, 2.6vw, 38px) 28px; }
-    .topbar { display: flex; align-items: center; justify-content: space-between; gap: 20px; border-bottom: 1px solid var(--line); padding: 0 0 14px; }
-    .brand { display: flex; align-items: center; gap: 11px; color: var(--cyan); font: 700 12px var(--mono); letter-spacing: .13em; }
-    .brand-mark { display: grid; place-items: center; width: 28px; height: 28px; border: 1px solid var(--cyan); color: var(--cyan); transform: rotate(45deg); }
-    .brand-mark span { transform: rotate(-45deg); }
-    .top-meta { display: flex; align-items: center; gap: 17px; color: var(--muted); font: 11px var(--mono); }
-    .online { color: var(--green); }
-    .online::before { content: ""; display: inline-block; width: 7px; height: 7px; margin: 0 7px 1px 0; border-radius: 50%; background: var(--green); box-shadow: 0 0 10px var(--green); }
-
-    .hero { display: flex; align-items: end; justify-content: space-between; gap: 18px; padding: 25px 0 20px; animation: appear .35s ease-out both; }
-    .eyebrow { color: var(--cyan); font: 11px var(--mono); letter-spacing: .15em; text-transform: uppercase; }
-    h1 { margin: 7px 0 0; font-size: clamp(25px, 4vw, 40px); font-weight: 650; line-height: 1.08; }
-    h1 .slash { color: var(--cyan); }
-    .hero-state { display: flex; align-items: center; gap: 9px; padding: 9px 12px; border: 1px solid var(--line); color: var(--muted); font: 10px var(--mono); text-transform: uppercase; }
-    .hero-state b { color: var(--green); font-weight: 600; }
-
-    .statusbar { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin-bottom: 17px; background: var(--line); border: 1px solid var(--line); }
-    .status-cell { min-width: 0; padding: 9px 12px; background: #0d141f; }
-    .status-label { display: block; margin-bottom: 5px; color: var(--muted); font: 9px var(--mono); letter-spacing: .1em; text-transform: uppercase; }
-    .status-value { display: block; min-width: 0; max-width: 100%; overflow: hidden; color: var(--text); font: 11px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
-    .status-value.good { color: var(--green); }
-
-    .deck { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
-    .panel { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: rgba(16, 24, 36, .96); box-shadow: 0 12px 32px rgba(0, 0, 0, .22); animation: appear .42s ease-out both; }
-    .panel:nth-child(2) { animation-delay: .04s; }
-    .panel:nth-child(3) { animation-delay: .08s; }
-    .panel:nth-child(4) { animation-delay: .12s; }
-    .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px; padding: 11px 14px; border-bottom: 1px solid var(--line); background: linear-gradient(90deg, rgba(0, 240, 255, .05), transparent 70%); }
-    .panel-title { display: flex; align-items: center; gap: 9px; margin: 0; font-size: 13px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; }
-    .panel-index { color: var(--cyan); font: 10px var(--mono); }
-    .panel-tag { color: var(--muted); font: 9px var(--mono); letter-spacing: .08em; text-transform: uppercase; }
-    .panel-body { padding: 14px; }
-    .field-label { display: block; margin: 0 0 7px; color: var(--muted); font: 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; }
-    .field, .select, .readout {
-      width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 3px; background: #0a111a;
-    }
-    .field, .select { min-height: 37px; padding: 8px 10px; }
-    textarea.field { min-height: 85px; resize: vertical; line-height: 1.5; }
-    .readout { min-height: 76px; max-height: 170px; overflow: auto; padding: 10px; color: #cce7ee; font: 11px/1.55 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
-    .readout.dim { color: var(--muted); }
-    .field:focus, .select:focus { border-color: var(--cyan); outline: none; }
-    .control-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(105px, .72fr) auto; gap: 8px; align-items: end; margin: 12px 0; }
-    .control-row.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .control-row .field-label { margin-bottom: 6px; }
-    .button-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-    .button { min-height: 35px; padding: 8px 12px; border: 1px solid var(--line-bright); border-radius: 3px; background: #142330; color: var(--cyan); font: 10px var(--mono); letter-spacing: .04em; text-transform: uppercase; transition: background .16s, border-color .16s, transform .16s; }
-    .button:hover { border-color: var(--cyan); background: #193342; transform: translateY(-1px); }
-    .button.primary { border-color: var(--green); background: #0a3028; color: #6bf0c2; }
-    .button.primary:hover { background: #104838; }
-    .button.quiet { color: var(--muted); }
-    .button:disabled { cursor: wait; opacity: .55; transform: none; }
-    .microcopy { margin: 7px 0 0; color: var(--muted); font: 10px/1.45 var(--mono); }
-    .output-label { display: flex; justify-content: space-between; gap: 8px; margin: 13px 0 7px; }
-
-    .dropzone { display: grid; place-items: center; min-height: 78px; padding: 12px; border: 1px dashed #3a5668; border-radius: 3px; background: rgba(6, 17, 26, .62); color: var(--muted); text-align: center; transition: border-color .15s, background .15s; }
-    .dropzone strong { display: block; margin-bottom: 4px; color: var(--text); font: 11px var(--mono); }
-    .dropzone small { font: 9px var(--mono); }
-    .dropzone.dragover { border-color: var(--cyan); background: rgba(0, 240, 255, .08); }
-    .file-button { position: relative; display: inline-flex; align-items: center; justify-content: center; min-height: 32px; padding: 7px 10px; border: 1px solid var(--line-bright); border-radius: 3px; color: var(--cyan); font: 9px var(--mono); text-transform: uppercase; cursor: pointer; }
-    .file-button input { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; }
-
-    .bit-ribbon { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 3px; min-height: 28px; margin-top: 9px; }
-    .bit-cell { display: grid; place-items: center; min-width: 0; height: 25px; border: 1px solid #234352; background: #0b1a24; color: var(--cyan); font: 9px var(--mono); }
-    .bit-cell.one { border-color: #17654d; background: #0b3027; color: #5be9b2; }
-    .metrics { display: flex; flex-wrap: wrap; gap: 8px 17px; margin: 10px 0; color: var(--muted); font: 9px var(--mono); text-transform: uppercase; }
-    .metrics b { color: var(--text); font-weight: 500; }
-
-    .canvas-frame { position: relative; overflow: hidden; min-height: 170px; border: 1px solid #243748; border-radius: 3px; background: #070c13; }
-    canvas.visual { display: block; width: 100%; height: 220px; image-rendering: pixelated; }
-    .canvas-empty { position: absolute; inset: 0; display: grid; place-items: center; padding: 15px; color: #60788a; font: 10px var(--mono); text-align: center; pointer-events: none; }
-    .canvas-frame.has-data .canvas-empty { display: none; }
-    .asset-preview { display: none; width: 100%; max-height: 270px; background: #05080d; object-fit: contain; }
-    .asset-preview.visible { display: block; }
-    .media-preview { display: none; width: 100%; max-height: 260px; background: #05080d; }
-    .media-preview.visible { display: block; }
-    .bit-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin: 11px 0; }
-    .bit-controls .select { min-height: 33px; padding: 6px 8px; }
-
-    .timeline-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
-    .timeline-toolbar .field { flex: 1 1 160px; min-height: 33px; padding: 6px 8px; font: 10px var(--mono); }
-    .timeline { display: grid; gap: 7px; max-height: 365px; overflow: auto; padding-right: 3px; }
-    .timeline-entry { position: relative; padding: 10px 11px 10px 14px; border: 1px solid #243849; border-left: 2px solid var(--cyan); background: #0b131d; }
-    .timeline-entry.fault { border-left-color: var(--amber); }
-    .timeline-entry.failed { border-left-color: var(--red); }
-    .entry-top { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
-    .entry-time { color: var(--cyan); font: 10px var(--mono); }
-    .entry-state { color: var(--green); font: 9px var(--mono); text-align: right; text-transform: uppercase; }
-    .timeline-entry.fault .entry-state { color: var(--amber); }
-    .timeline-entry.failed .entry-state { color: var(--red); }
-    .entry-path { margin: 7px 0 5px; color: var(--text); font: 10px/1.45 var(--mono); overflow-wrap: anywhere; }
-    .entry-meta { color: var(--muted); font: 9px/1.45 var(--mono); overflow-wrap: anywhere; }
-    .entry-detail { margin-top: 7px; color: #c4d3dd; font: 9px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
-    .entry-detail b { color: var(--amber); font-weight: 500; }
-    .empty-state { padding: 18px 10px; border: 1px dashed var(--line); color: var(--muted); font: 10px/1.5 var(--mono); text-align: center; }
-
-    .terminal { margin-top: 15px; border: 1px solid var(--line-bright); border-radius: var(--radius); background: rgba(7, 13, 20, .98); }
-    .terminal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 13px; border-bottom: 1px solid var(--line); }
-    .terminal-title { color: var(--cyan); font: 10px var(--mono); letter-spacing: .08em; }
-    .terminal-state { color: var(--green); font: 9px var(--mono); }
-    .terminal-lines { display: grid; gap: 4px; height: 132px; overflow: auto; padding: 10px 13px; color: #a8c1d1; font: 10px/1.5 var(--mono); }
-    .terminal-line { overflow-wrap: anywhere; }
-    .terminal-line::before { content: ">"; margin-right: 8px; color: var(--green); }
-    .terminal-line.warn { color: var(--amber); }
-    .terminal-line.error { color: var(--red); }
-    .terminal-line.info { color: var(--cyan); }
-    .footer { display: flex; justify-content: space-between; gap: 10px; padding: 13px 2px 0; color: #61798b; font: 9px var(--mono); }
-
-    @keyframes appear { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
-    @media (max-width: 840px) {
-      .deck { grid-template-columns: 1fr; }
-      .panel-body { padding: 13px; }
-      .timeline { max-height: 310px; }
-    }
-    @media (max-width: 560px) {
-      .shell { padding: 14px 12px 22px; }
-      .hero { align-items: start; flex-direction: column; padding-top: 19px; }
-      .hero-state { align-self: stretch; }
-      .statusbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .top-meta { gap: 8px; font-size: 9px; }
-      .control-row { grid-template-columns: 1fr 1fr; }
-      .control-row .button { grid-column: 1 / -1; }
-      .control-row.two { grid-template-columns: 1fr; }
-      .entry-top { flex-direction: column; gap: 4px; }
-      .entry-state { text-align: left; }
-      .footer { flex-direction: column; }
-    }
-    @media (prefers-reduced-motion: reduce) {
-      *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OMNI-CIPHER HUD — Color Channel Analysis</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: #0a0e27;
+            color: #00ff88;
+            font-family: 'Courier New', monospace;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            text-align: center;
+            color: #ff00ff;
+            margin-bottom: 20px;
+            text-shadow: 0 0 10px #ff00ff;
+        }
+        
+        .control-panel {
+            background: rgba(0, 255, 136, 0.1);
+            border: 2px solid #00ff88;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+        }
+        
+        .control-panel h2 {
+            color: #00ff88;
+            margin-bottom: 15px;
+            font-size: 14px;
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 15px;
+        }
+        
+        button {
+            background: #1a1a2e;
+            border: 2px solid #00ff88;
+            color: #00ff88;
+            padding: 10px 15px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            border-radius: 3px;
+            transition: all 0.2s;
+            font-size: 12px;
+            text-transform: uppercase;
+        }
+        
+        button:hover {
+            background: #00ff88;
+            color: #0a0e27;
+            text-shadow: none;
+        }
+        
+        button.active {
+            background: #00ff88;
+            color: #0a0e27;
+            border-color: #00ff88;
+        }
+        
+        .file-input-wrapper {
+            margin-bottom: 15px;
+        }
+        
+        input[type="file"] {
+            color: #00ff88;
+        }
+        
+        input[type="file"]::file-selector-button {
+            background: #1a1a2e;
+            border: 2px solid #00ff88;
+            color: #00ff88;
+            padding: 8px 12px;
+            cursor: pointer;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            transition: all 0.2s;
+        }
+        
+        input[type="file"]::file-selector-button:hover {
+            background: #00ff88;
+            color: #0a0e27;
+        }
+        
+        .viewer {
+            background: rgba(0, 0, 0, 0.5);
+            border: 2px solid #ff00ff;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        
+        canvas {
+            display: block;
+            margin: 0 auto;
+            border: 1px solid #00ff88;
+            max-width: 100%;
+            height: auto;
+        }
+        
+        .info-panel {
+            background: rgba(255, 0, 136, 0.1);
+            border: 2px solid #ff00ff;
+            padding: 15px;
+            margin-top: 15px;
+            border-radius: 5px;
+            font-size: 12px;
+        }
+        
+        .info-panel p {
+            margin-bottom: 8px;
+        }
+        
+        .label {
+            color: #ff00ff;
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+    </style>
 </head>
 <body>
-  <div class="shell">
-    <header class="topbar">
-      <div class="brand"><span class="brand-mark"><span>O</span></span><span>OMNI / CIPHER SYSTEMS</span></div>
-      <div class="top-meta"><span class="online">LOCAL CORE</span><time id="clock">--:--:--</time></div>
-    </header>
-
-    <section class="hero" aria-label="System overview">
-      <div>
-        <div class="eyebrow">Operations deck / 04 active modules</div>
-        <h1>OMNI <span class="slash">//</span> CONTROL SURFACE</h1>
-      </div>
-      <div class="hero-state"><span>Processing mode</span><b>Browser-local</b></div>
-    </section>
-
-    <section class="statusbar" aria-label="Live system status">
-      <div class="status-cell"><span class="status-label">Core link</span><span class="status-value good" id="coreStatus">READY / OFFLINE SAFE</span></div>
-      <div class="status-cell"><span class="status-label">Last operation</span><span class="status-value" id="lastOperation">Awaiting input</span></div>
-      <div class="status-cell"><span class="status-label">Assets analyzed</span><span class="status-value" id="assetCount">00</span></div>
-      <div class="status-cell"><span class="status-label">Telemetry entries</span><span class="status-value" id="telemetryCount">00</span></div>
-    </section>
-
-    <main class="deck">
-      <section class="panel" aria-labelledby="cipherTitle">
-        <header class="panel-head"><h2 class="panel-title" id="cipherTitle"><span class="panel-index">01</span> Master Controls</h2><span class="panel-tag">Cipher engine</span></header>
-        <div class="panel-body">
-          <label class="field-label" for="cipherInput">Cipher payload / Latin-1 text</label>
-          <textarea class="field" id="cipherInput" placeholder="Paste encoded text, hex, binary, or a raw byte-preserving string…" spellcheck="false"></textarea>
-          <div class="control-row">
-            <div><label class="field-label" for="cipherMethod">Transform</label><select class="select" id="cipherMethod"><option value="auto">Auto detect</option><option value="base64">Base64</option><option value="base32">Base32</option><option value="base85">Base85</option><option value="hex">Hex</option><option value="binary">Binary</option><option value="url">URL</option><option value="rot13">ROT13</option><option value="atbash">Atbash</option><option value="caesar">Caesar</option><option value="vigenere">Vigenère</option><option value="ascii256">ASCII-256</option><option value="zero-width">Zero-width</option></select></div>
-            <div><label class="field-label" for="cipherDirection">Direction</label><select class="select" id="cipherDirection"><option value="decode">Decode</option><option value="encode">Encode</option></select></div>
-            <button class="button primary" id="runCipher" type="button">Run transform</button>
-          </div>
-          <div class="control-row two">
-            <div><label class="field-label" for="cipherShift">Shift / Vigenère key</label><input class="field" id="cipherShift" type="text" value="3" maxlength="64" autocomplete="off"></div>
-            <div><label class="field-label" for="cipherFile">Attach text asset</label><label class="file-button">OPEN .TXT<input id="cipherFile" type="file" accept=".txt,.log,text/plain"></label></div>
-          </div>
-          <div class="output-label"><span class="field-label" style="margin:0">Decoded / encoded output</span><span class="panel-tag" id="byteCount">0 BYTES</span></div>
-          <pre class="readout dim" id="cipherOutput" aria-live="polite">Output stream will appear here.</pre>
-          <div class="button-row"><button class="button quiet" id="copyCipher" type="button">Copy output</button><button class="button quiet" id="clearCipher" type="button">Clear</button></div>
+    <div class="container">
+        <h1>🛰️ OMNI-CIPHER HUD — Image Color Analysis</h1>
+        
+        <div class="control-panel">
+            <h2>File Upload & Channel Controls</h2>
+            
+            <div class="file-input-wrapper">
+                <label class="label">Load Image:</label>
+                <input type="file" id="imageInput" accept="image/*">
+            </div>
+            
+            <div>
+                <label class="label">Color Channel Isolation:</label>
+                <div class="button-group">
+                    <button id="btn-rgb">Full RGB</button>
+                    <button id="btn-red">Red Only</button>
+                    <button id="btn-green">Green Only</button>
+                    <button id="btn-blue">Blue Only</button>
+                    <button id="btn-alpha">Alpha Channel</button>
+                </div>
+            </div>
+            
+            <div>
+                <label class="label">Pixel Transformations:</label>
+                <div class="button-group">
+                    <button id="btn-invert">Invert Colors</button>
+                    <button id="btn-lsb-red">LSB (Red)</button>
+                    <button id="btn-lsb-green">LSB (Green)</button>
+                    <button id="btn-lsb-blue">LSB (Blue)</button>
+                </div>
+            </div>
+            
+            <div>
+                <label class="label">Bit Plane Extraction:</label>
+                <div class="button-group">
+                    <button id="btn-bit0">Bit 0 (LSB)</button>
+                    <button id="btn-bit1">Bit 1</button>
+                    <button id="btn-bit2">Bit 2</button>
+                    <button id="btn-bit3">Bit 3</button>
+                    <button id="btn-bit4">Bit 4</button>
+                    <button id="btn-bit5">Bit 5</button>
+                    <button id="btn-bit6">Bit 6</button>
+                    <button id="btn-bit7">Bit 7 (MSB)</button>
+                </div>
+            </div>
         </div>
-      </section>
-
-      <section class="panel" aria-labelledby="zeroTitle">
-        <header class="panel-head"><h2 class="panel-title" id="zeroTitle"><span class="panel-index">02</span> Invisible Text Matrix</h2><span class="panel-tag">U+200C / U+200D</span></header>
-        <div class="panel-body">
-          <label class="field-label" for="zeroInput">Paste carrier text or drop a .txt file</label>
-          <textarea class="field" id="zeroInput" placeholder="Carrier text containing zero-width non-joiners / joiners…" spellcheck="false"></textarea>
-          <div class="dropzone" id="zeroDrop" tabindex="0"><div><strong>DROP TEXT / LOG PAYLOAD</strong><small>Plain text is read locally; no upload occurs.</small></div></div>
-          <div class="metrics"><span>Tokens <b id="zeroTokens">0</b></span><span>Bits <b id="zeroBits">0</b></span><span>Bytes <b id="zeroBytes">0</b></span></div>
-          <div class="field-label">Bitstream / most-significant bit first</div>
-          <div class="bit-ribbon" id="zeroRibbon" aria-label="Extracted zero-width bitstream"></div>
-          <div class="output-label"><span class="field-label" style="margin:0">Recovered Latin-1 payload</span><span class="panel-tag">Lossless byte map</span></div>
-          <pre class="readout dim" id="zeroOutput" aria-live="polite">Hidden text will appear here.</pre>
+        
+        <div class="viewer">
+            <canvas id="canvas" width="800" height="600"></canvas>
         </div>
-      </section>
-
-      <section class="panel" aria-labelledby="imageTitle">
-        <header class="panel-head"><h2 class="panel-title" id="imageTitle"><span class="panel-index">03</span> Image LSB Scanner</h2><span class="panel-tag">Bit-plane view</span></header>
-        <div class="panel-body">
-          <label class="dropzone" id="imageDrop" for="imageFile"><span><strong>DROP IMAGE / SELECT FILE</strong><small>PNG · JPG · JPEG / processed in this browser</small></span><input id="imageFile" type="file" accept="image/png,image/jpeg,.png,.jpg,.jpeg" hidden></label>
-          <div class="metrics"><span>Source <b id="imageName">None</b></span><span>Raster <b id="imageSize">—</b></span></div>
-          <div class="bit-controls">
-            <div><label class="field-label" for="imageChannel">Channel</label><select class="select" id="imageChannel"><option value="0">Red</option><option value="1">Green</option><option value="2">Blue</option><option value="3">Alpha</option></select></div>
-            <div><label class="field-label" for="imageBit">Bit plane</label><select class="select" id="imageBit"><option value="0">Bit 0 / LSB</option><option value="1">Bit 1</option><option value="2">Bit 2</option><option value="3">Bit 3</option><option value="4">Bit 4</option><option value="5">Bit 5</option><option value="6">Bit 6</option><option value="7">Bit 7 / MSB</option></select></div>
-          </div>
-          <div class="canvas-frame" id="imageFrame"><canvas class="visual" id="imageCanvas" width="512" height="280"></canvas><div class="canvas-empty">BIT-PLANE MATRIX // WAITING FOR IMAGE</div></div>
-          <div class="output-label"><span class="field-label" style="margin:0">Packed plane bytes / printable preview</span><span class="panel-tag" id="imageByteCount">0 bytes</span></div>
-          <pre class="readout dim" id="imageOutput">Select a channel and plane to inspect its packed byte stream.</pre>
+        
+        <div class="info-panel">
+            <span class="label">Image Information:</span>
+            <p>Width: <span id="info-width">—</span> px</p>
+            <p>Height: <span id="info-height">—</span> px</p>
+            <p>Mode: <span id="info-mode">—</span></p>
+            <p>Status: <span id="info-status">Ready. Load an image to begin.</span></p>
         </div>
-      </section>
-
-      <section class="panel" aria-labelledby="mediaTitle">
-        <header class="panel-head"><h2 class="panel-title" id="mediaTitle"><span class="panel-index">04</span> Media Signal Lab</h2><span class="panel-tag">Audio / video intake</span></header>
-        <div class="panel-body">
-          <label class="dropzone" id="mediaDrop" for="mediaFile"><span><strong>DROP WAV / VIDEO / SELECT FILE</strong><small>WAV · MP4 · MKV · AVI · WEBM / local decode only</small></span><input id="mediaFile" type="file" accept="audio/wav,audio/x-wav,video/*,.wav,.mp4,.mkv,.avi,.webm,.mov" hidden></label>
-          <div class="metrics"><span>Signal <b id="mediaName">None</b></span><span>Duration <b id="mediaDuration">—</b></span><span>Channels <b id="mediaChannels">—</b></span></div>
-          <video class="media-preview" id="videoPreview" controls playsinline></video>
-          <div class="canvas-frame" id="audioFrame"><canvas class="visual" id="spectrogram" width="512" height="220"></canvas><div class="canvas-empty">SPECTROGRAM // WAITING FOR WAV SIGNAL</div></div>
-          <div class="output-label"><span class="field-label" style="margin:0">PCM least-significant-bit stream</span><span class="panel-tag" id="audioByteCount">0 bytes</span></div>
-          <pre class="readout dim" id="audioOutput">WAV PCM bytes will be inspected without channel downmixing.</pre>
-        </div>
-      </section>
-
-      <section class="panel" aria-labelledby="watcherTitle">
-        <header class="panel-head"><h2 class="panel-title" id="watcherTitle"><span class="panel-index">05</span> 🛰️ Agent Watcher Dispatch</h2><span class="panel-tag">Patch-log radar</span></header>
-        <div class="panel-body">
-          <div class="timeline-toolbar">
-            <button class="button primary" id="loadDefaultLog" type="button">Load workspace log</button>
-            <label class="file-button">ATTACH .LOG / .TXT<input id="logFile" type="file" accept=".log,.txt,.jsonl,text/plain,application/json"></label>
-            <input class="field" id="logFilter" type="search" placeholder="Filter tool, state, fault…" aria-label="Filter telemetry">
-          </div>
-          <p class="microcopy" id="logStatus">Default path: puzzles/logs/diagnostics/workspace_patches.log</p>
-          <div class="metrics"><span>Records <b id="logRecords">0</b></span><span>Faults <b id="logFaults">0</b></span><span>Latest state <b id="logLatest">—</b></span></div>
-          <div class="timeline" id="timeline" aria-live="polite"><div class="empty-state">NO TELEMETRY LOADED<br>Attach the workspace log or try the local path.</div></div>
-        </div>
-      </section>
-
-      <section class="panel" aria-labelledby="attachmentsTitle">
-        <header class="panel-head"><h2 class="panel-title" id="attachmentsTitle"><span class="panel-index">06</span> Local Asset Queue</h2><span class="panel-tag">Browser filesystem bridge</span></header>
-        <div class="panel-body">
-          <div class="dropzone" id="queueDrop" tabindex="0"><div><strong>DROP .TXT / .LOG / .PNG / .JPG / .WAV</strong><small>Choose a processing lane above after adding a file.</small></div></div>
-          <div class="metrics"><span>Queued <b id="queueCount">0</b></span><span>Last attached <b id="queueLast">—</b></span></div>
-          <pre class="readout dim" id="queueReadout">Dropped assets remain local. Text files can be sent to the cipher or zero-width lanes; image and WAV files open in their analysis lanes.</pre>
-        </div>
-      </section>
-    </main>
-
-    <section class="terminal" aria-label="System telemetry terminal">
-      <header class="terminal-head"><span class="terminal-title">SYSTEM TELEMETRY HUD / EVENT STREAM</span><span class="terminal-state" id="terminalState">LIVE · LOCAL</span></header>
-      <div class="terminal-lines" id="terminalLines" role="log" aria-live="polite"></div>
-    </section>
-    <footer class="footer"><span>OMNI // CLIENT-SIDE ANALYSIS · NO REMOTE UPLOADS</span><span>LATIN-1 PATH: ENABLED · U+200C / U+200D: WATCHING</span></footer>
-  </div>
-
-  <script>
-    "use strict";
-
-    // Explicit byte-to-codepoint table: each of the 256 byte values maps to
-    // the identically numbered Latin-1 Unicode code point.
-    const LATIN1_BYTE_TO_CODEPOINT = Object.freeze([
-      0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,
-      32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,
-      64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,
-      96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,
-      128,129,130,131,132,133,134,135,136,137,138,139,140,141,142,143,144,145,146,147,148,149,150,151,152,153,154,155,156,157,158,159,
-      160,161,162,163,164,165,166,167,168,169,170,171,172,173,174,175,176,177,178,179,180,181,182,183,184,185,186,187,188,189,190,191,
-      192,193,194,195,196,197,198,199,200,201,202,203,204,205,206,207,208,209,210,211,212,213,214,215,216,217,218,219,220,221,222,223,
-      224,225,226,227,228,229,230,231,232,233,234,235,236,237,238,239,240,241,242,243,244,245,246,247,248,249,250,251,252,253,254,255
-    ]);
-    const LATIN1_CODEPOINT_TO_BYTE = new Map(LATIN1_BYTE_TO_CODEPOINT.map((codepoint, byte) => [codepoint, byte]));
-    const BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-    const BASE85_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!#$%&()*+-;<=>?@^_`{|}~";
-    const ZWNJ = "\u200c";
-    const ZWJ = "\u200d";
-    const $ = (selector) => document.querySelector(selector);
-    const state = { assets: 0, telemetry: [], imagePixels: null, imageWidth: 0, imageHeight: 0, audioContext: null, videoUrl: null, queue: [] };
-
-    function latin1Bytes(text) {
-      const bytes = new Uint8Array(text.length);
-      for (let i = 0; i < text.length; i += 1) {
-        const codepoint = text.charCodeAt(i);
-        if (!LATIN1_CODEPOINT_TO_BYTE.has(codepoint)) throw new RangeError(`Character U+${codepoint.toString(16).toUpperCase()} is outside Latin-1.`);
-        bytes[i] = LATIN1_CODEPOINT_TO_BYTE.get(codepoint);
-      }
-      return bytes;
-    }
-    function latin1String(bytes) {
-      let result = "";
-      const stride = 8192;
-      for (let offset = 0; offset < bytes.length; offset += stride) {
-        const stop = Math.min(offset + stride, bytes.length);
-        const points = new Array(stop - offset);
-        for (let i = offset; i < stop; i += 1) points[i - offset] = LATIN1_BYTE_TO_CODEPOINT[bytes[i]];
-        result += String.fromCodePoint(...points);
-      }
-      return result;
-    }
-    function printableRatio(text) {
-      if (!text.length) return 0;
-      let printable = 0;
-      for (const char of text) if (char === "\n" || char === "\r" || char === "\t" || char >= " " && char !== "\u007f") printable += 1;
-      return printable / text.length;
-    }
-    function setReadout(element, value, isPlaceholder = false) {
-      element.textContent = value;
-      element.classList.toggle("dim", isPlaceholder);
-    }
-    function timestamp() {
-      return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(new Date());
-    }
-    function logEvent(message, level = "normal") {
-      const line = document.createElement("div");
-      line.className = `terminal-line ${level}`;
-      line.textContent = `${timestamp()}  ${message}`;
-      $("#terminalLines").append(line);
-      while ($("#terminalLines").children.length > 80) $("#terminalLines").firstElementChild.remove();
-      $("#terminalLines").scrollTop = $("#terminalLines").scrollHeight;
-      $("#lastOperation").textContent = message.slice(0, 40);
-    }
-    function noteAsset(name) {
-      state.assets += 1;
-      $("#assetCount").textContent = String(state.assets).padStart(2, "0");
-      $("#queueLast").textContent = name;
-    }
-
-    function rot13(text) { return text.replace(/[a-zA-Z]/g, (char) => String.fromCharCode(char <= "Z" ? (char.charCodeAt(0) - 65 + 13) % 26 + 65 : (char.charCodeAt(0) - 97 + 13) % 26 + 97)); }
-    function atbash(text) { return text.replace(/[a-zA-Z]/g, (char) => String.fromCharCode(char <= "Z" ? 90 - (char.charCodeAt(0) - 65) : 122 - (char.charCodeAt(0) - 97))); }
-    function caesar(text, shift) {
-      const normalized = ((shift % 26) + 26) % 26;
-      return text.replace(/[a-zA-Z]/g, (char) => {
-        const base = char <= "Z" ? 65 : 97;
-        return String.fromCharCode((char.charCodeAt(0) - base + ( $("#cipherDirection").value === "encode" ? normalized : 26 - normalized)) % 26 + base);
-      });
-    }
-    function vigenere(text, key, direction) {
-      const shifts = Array.from(key.toUpperCase()).filter((char) => /[A-Z]/.test(char)).map((char) => char.charCodeAt(0) - 65);
-      if (!shifts.length) throw new Error("Vigenère requires at least one ASCII letter in its key.");
-      let keyIndex = 0;
-      return text.replace(/[a-zA-Z]/g, (char) => {
-        const base = char <= "Z" ? 65 : 97;
-        const offset = direction === "encode" ? shifts[keyIndex % shifts.length] : 26 - shifts[keyIndex % shifts.length];
-        keyIndex += 1;
-        return String.fromCharCode((char.charCodeAt(0) - base + offset) % 26 + base);
-      });
-    }
-    function encodeBase32(text) {
-      const bytes = latin1Bytes(text);
-      let bits = "";
-      for (const byte of bytes) bits += byte.toString(2).padStart(8, "0");
-      let result = "";
-      for (let offset = 0; offset < bits.length; offset += 5) result += BASE32_ALPHABET[Number.parseInt(bits.slice(offset, offset + 5).padEnd(5, "0"), 2)];
-      while (result.length % 8) result += "=";
-      return result;
-    }
-    function decodeBase32(text) {
-      const clean = text.replace(/\s+/g, "").replace(/=+$/, "").toUpperCase();
-      if (!clean || /[^A-Z2-7]/.test(clean)) throw new Error("Invalid Base32 alphabet.");
-      let bits = "";
-      for (const char of clean) bits += BASE32_ALPHABET.indexOf(char).toString(2).padStart(5, "0");
-      const bytes = [];
-      for (let offset = 0; offset + 8 <= bits.length; offset += 8) bytes.push(Number.parseInt(bits.slice(offset, offset + 8), 2));
-      return latin1String(Uint8Array.from(bytes));
-    }
-    function encodeBase85(text) {
-      const bytes = latin1Bytes(text);
-      let result = "";
-      for (let offset = 0; offset < bytes.length; offset += 4) {
-        const count = Math.min(4, bytes.length - offset);
-        let value = 0;
-        for (let i = 0; i < 4; i += 1) value = value * 256 + (i < count ? bytes[offset + i] : 0);
-        const digits = new Array(5);
-        for (let i = 4; i >= 0; i -= 1) { digits[i] = BASE85_ALPHABET[value % 85]; value = Math.floor(value / 85); }
-        result += digits.slice(0, count + 1).join("");
-      }
-      return result;
-    }
-    function decodeBase85(text) {
-      const clean = text.replace(/\s+/g, "");
-      if (!clean || /[^0-9A-Za-z!#$%&()*+\-;<=>?@^_`{|}~]/.test(clean) || clean.length % 5 === 1) throw new Error("Invalid Base85 stream.");
-      const bytes = [];
-      for (let offset = 0; offset < clean.length; offset += 5) {
-        const count = Math.min(5, clean.length - offset);
-        let value = 0;
-        for (let i = 0; i < 5; i += 1) {
-          const char = i < count ? clean[offset + i] : BASE85_ALPHABET[84];
-          value = value * 85 + (i < count ? BASE85_ALPHABET.indexOf(char) : 84);
+    </div>
+    
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        let currentImageData = null;
+        let originalImageData = null;
+        let currentMode = 'rgb';
+        
+        const infoWidth = document.getElementById('info-width');
+        const infoHeight = document.getElementById('info-height');
+        const infoMode = document.getElementById('info-mode');
+        const infoStatus = document.getElementById('info-status');
+        
+        // File upload handler
+        document.getElementById('imageInput').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = new Image();
+                img.onload = () => {
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    ctx.drawImage(img, 0, 0);
+                    originalImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    currentImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    
+                    infoWidth.textContent = img.width;
+                    infoHeight.textContent = img.height;
+                    infoMode.textContent = 'RGBA';
+                    infoStatus.textContent = 'Image loaded. Select channel or transformation.';
+                    currentMode = 'rgb';
+                    updateAllButtons();
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+        
+        function updateAllButtons() {
+            document.querySelectorAll('button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            switch(currentMode) {
+                case 'rgb': document.getElementById('btn-rgb').classList.add('active'); break;
+                case 'red': document.getElementById('btn-red').classList.add('active'); break;
+                case 'green': document.getElementById('btn-green').classList.add('active'); break;
+                case 'blue': document.getElementById('btn-blue').classList.add('active'); break;
+                case 'alpha': document.getElementById('btn-alpha').classList.add('active'); break;
+                case 'invert': document.getElementById('btn-invert').classList.add('active'); break;
+                case 'lsb-red': document.getElementById('btn-lsb-red').classList.add('active'); break;
+                case 'lsb-green': document.getElementById('btn-lsb-green').classList.add('active'); break;
+                case 'lsb-blue': document.getElementById('btn-lsb-blue').classList.add('active'); break;
+            }
         }
-        if (value > 0xffffffff) throw new Error("Base85 group exceeds a 32-bit word.");
-        const group = [(value >>> 24) & 255, (value >>> 16) & 255, (value >>> 8) & 255, value & 255];
-        bytes.push(...group.slice(0, count === 5 ? 4 : count - 1));
-      }
-      return latin1String(Uint8Array.from(bytes));
-    }
-    function encodeZeroWidth(text) {
-      return Array.from(latin1Bytes(text), (byte) => Array.from({length:8}, (_, index) => byte & (1 << (7 - index)) ? "\u200d" : "\u200c").join("")).join("");
-    }
-    function decodeZeroWidth(text) {
-      const bits = Array.from(text).filter((char) => char === "\u200c" || char === "\u200d").map((char) => char === "\u200d" ? 1 : 0);
-      return latin1String(packBits(bits));
-    }
-    function ascii256(text, shift, direction) {
-      const delta = direction === "encode" ? shift : -shift;
-      return latin1String(Uint8Array.from(latin1Bytes(text), (byte) => ((byte + delta) % 256 + 256) % 256));
-    }
-    function decodeBytes(bytes) { return latin1String(bytes); }
-    function decodeMethod(text, method, direction) {
-      if (direction === "encode") {
-        if (method === "base64") return btoa(latin1String(latin1Bytes(text)));
-        if (method === "base32") return encodeBase32(text);
-        if (method === "base85") return encodeBase85(text);
-        if (method === "hex") return Array.from(latin1Bytes(text), (byte) => byte.toString(16).padStart(2, "0")).join(" ");
-        if (method === "binary") return Array.from(latin1Bytes(text), (byte) => byte.toString(2).padStart(8, "0")).join(" ");
-        if (method === "url") return encodeURIComponent(text);
-        if (method === "rot13") return rot13(text);
-        if (method === "atbash") return atbash(text);
-        if (method === "caesar") return caesar(text, Number($("#cipherShift").value) || 0);
-        if (method === "vigenere") return vigenere(text, $("#cipherShift").value, "encode");
-        if (method === "ascii256") return ascii256(text, Number($("#cipherShift").value) || 1, "encode");
-        if (method === "zero-width") return encodeZeroWidth(text);
-      }
-      if (method === "base64") {
-        let clean = text.replace(/\s+/g, "");
-        clean += "=".repeat((4 - clean.length % 4) % 4);
-        const raw = atob(clean);
-        return decodeBytes(Uint8Array.from(raw, (char) => char.charCodeAt(0)));
-      }
-      if (method === "base32") return decodeBase32(text);
-      if (method === "base85") return decodeBase85(text);
-      if (method === "hex") {
-        const clean = text.replace(/(?:0x|[\s,:-])/gi, "");
-        if (!/^(?:[0-9a-f]{2})*$/i.test(clean)) throw new Error("Hex input must contain complete byte pairs.");
-        const bytes = new Uint8Array(clean.length / 2);
-        for (let i = 0; i < bytes.length; i += 1) bytes[i] = Number.parseInt(clean.slice(i * 2, i * 2 + 2), 16);
-        return decodeBytes(bytes);
-      }
-      if (method === "binary") {
-        const groups = text.trim().split(/[\s,]+/).filter(Boolean);
-        if (!groups.length || groups.some((group) => !/^[01]{7,8}$/.test(group))) throw new Error("Binary input must be space-separated 7- or 8-bit groups.");
-        return decodeBytes(Uint8Array.from(groups, (group) => Number.parseInt(group, 2)));
-      }
-      if (method === "url") return decodeURIComponent(text.replace(/\+/g, "%20"));
-      if (method === "rot13") return rot13(text);
-      if (method === "atbash") return atbash(text);
-      if (method === "caesar") return caesar(text, Number($("#cipherShift").value) || 0);
-      if (method === "vigenere") return vigenere(text, $("#cipherShift").value, "decode");
-      if (method === "ascii256") return ascii256(text, Number($("#cipherShift").value) || 1, "decode");
-      if (method === "zero-width") return decodeZeroWidth(text);
-      throw new Error("Choose a transform method.");
-    }
-    function autoDecode(text) {
-      const candidates = [];
-      for (const method of ["base64", "base32", "base85", "hex", "binary", "url"]) {
-        try {
-          const result = decodeMethod(text, method, "decode");
-          if (result !== text && result.length && printableRatio(result) > 0.55) candidates.push({ method, result, score: printableRatio(result) + (/[A-Za-z]/.test(result) ? 0.2 : 0) });
-        } catch (_) { /* A failed candidate is not a failed scan. */ }
-      }
-      const zeroWidth = decodeZeroWidth(text);
-      if (zeroWidth.length) candidates.push({ method: "ZERO-WIDTH", result: zeroWidth, score: 1.2 });
-      const rotated = rot13(text);
-      if (rotated !== text && printableRatio(rotated) > 0.85) candidates.push({ method: "ROT13", result: rotated, score: printableRatio(rotated) + 0.05 });
-      candidates.sort((a, b) => b.score - a.score);
-      return candidates.length ? `[${candidates[0].method}] ${candidates[0].result}` : "No high-confidence transform. Try selecting a method or attaching the source file.";
-    }
-    function runCipher() {
-      const text = $("#cipherInput").value;
-      const method = $("#cipherMethod").value;
-      const direction = $("#cipherDirection").value;
-      if (!text.length) { logEvent("Cipher lane idle: no input payload.", "warn"); return; }
-      try {
-        const result = method === "auto" ? autoDecode(text) : decodeMethod(text, method, direction);
-        setReadout($("#cipherOutput"), result);
-        $("#byteCount").textContent = `${latin1BytesSafeCount(result)} BYTES`;
-        logEvent(`${direction.toUpperCase()} / ${method.toUpperCase()} complete; ${result.length} characters preserved.`, "info");
-      } catch (error) {
-        setReadout($("#cipherOutput"), `${error.name}: ${error.message}`);
-        logEvent(`Cipher transform halted: ${error.message}`, "error");
-      }
-    }
-    function latin1BytesSafeCount(text) {
-      try { return latin1Bytes(text).length; } catch (_) { return new TextEncoder().encode(text).length; }
-    }
-
-    function extractZeroWidthMatrix(text) {
-      const tokens = [];
-      for (const char of text) if (char === ZWJ || char === ZWNJ) tokens.push(char === ZWJ ? 1 : 0);
-      const bytes = new Uint8Array(Math.floor(tokens.length / 8));
-      for (let i = 0; i < bytes.length; i += 1) {
-        let value = 0;
-        for (let bit = 0; bit < 8; bit += 1) value = (value << 1) | tokens[i * 8 + bit];
-        bytes[i] = value;
-      }
-      return { tokens, bits: tokens.slice(0, bytes.length * 8), bytes, trailing: tokens.length % 8 };
-    }
-    function renderZeroWidth() {
-      const decoded = extractZeroWidthMatrix($("#zeroInput").value);
-      $("#zeroTokens").textContent = decoded.tokens.length.toLocaleString();
-      $("#zeroBits").textContent = decoded.bits.length.toLocaleString();
-      $("#zeroBytes").textContent = decoded.bytes.length.toLocaleString();
-      const ribbon = $("#zeroRibbon");
-      ribbon.replaceChildren();
-      for (const bit of decoded.bits.slice(0, 128)) {
-        const cell = document.createElement("span");
-        cell.className = `bit-cell${bit ? " one" : ""}`;
-        cell.textContent = String(bit);
-        ribbon.append(cell);
-      }
-      const suffix = decoded.trailing ? `\n[${decoded.trailing} trailing bit(s) ignored; incomplete byte]` : "";
-      setReadout($("#zeroOutput"), decoded.bytes.length ? latin1String(decoded.bytes) + suffix : suffix || "No complete zero-width byte sequence found.", !decoded.bytes.length && !suffix);
-      if (decoded.tokens.length) logEvent(`Zero-width matrix parsed: ${decoded.tokens.length} tokens / ${decoded.bytes.length} bytes.`, "info");
-    }
-
-    function packBits(bits) {
-      const bytes = new Uint8Array(Math.floor(bits.length / 8));
-      for (let i = 0; i < bytes.length; i += 1) {
-        let value = 0;
-        for (let bit = 0; bit < 8; bit += 1) value = value * 2 + bits[i * 8 + bit];
-        bytes[i] = value;
-      }
-      return bytes;
-    }
-    function drawImagePlane() {
-      if (!state.imagePixels) return;
-      const channel = Number($("#imageChannel").value);
-      const bit = Number($("#imageBit").value);
-      const { data, width, height } = state.imagePixels;
-      const plane = document.createElement("canvas");
-      plane.width = width;
-      plane.height = height;
-      const context = plane.getContext("2d", { willReadFrequently: true });
-      const output = context.createImageData(width, height);
-      const packedBits = new Uint8Array(width * height);
-      const channelAvailable = channel < 3 || state.imageHasAlpha;
-      for (let pixel = 0; pixel < width * height; pixel += 1) {
-        const value = channelAvailable ? data[pixel * 4 + channel] : 255;
-        const on = (value >> bit) & 1;
-        packedBits[pixel] = on;
-        const shade = on ? 230 : 8;
-        const offset = pixel * 4;
-        output.data[offset] = on ? 0 : 5;
-        output.data[offset + 1] = shade;
-        output.data[offset + 2] = on ? 130 : 12;
-        output.data[offset + 3] = 255;
-      }
-      context.putImageData(output, 0, 0);
-      const target = $("#imageCanvas");
-      const targetContext = target.getContext("2d");
-      targetContext.clearRect(0, 0, target.width, target.height);
-      targetContext.imageSmoothingEnabled = false;
-      targetContext.drawImage(plane, 0, 0, target.width, target.height);
-      $("#imageFrame").classList.add("has-data");
-      const packed = packBits(packedBits);
-      const preview = latin1String(packed.slice(0, 700));
-      const printable = Array.from(preview).filter((char) => char === "\n" || char === "\r" || char === "\t" || char >= " " && char !== "\u007f").length;
-      const ratio = preview.length ? printable / preview.length : 0;
-      const text = ratio > 0.68 ? preview : `Binary plane preview (Latin-1):\n${preview.slice(0, 180)}\n\nHex: ${Array.from(packed.slice(0, 48), (byte) => byte.toString(16).padStart(2, "0")).join(" ")}`;
-      setReadout($("#imageOutput"), `${text}${packed.length > 700 ? "\n… preview truncated …" : ""}`);
-      $("#imageByteCount").textContent = `${packed.length.toLocaleString()} bytes`;
-    }
-    async function loadImage(file) {
-      if (!file || !file.type.startsWith("image/")) { logEvent("Image lane rejected a non-image asset.", "warn"); return; }
-      try {
-        const bitmap = await createImageBitmap(file);
-        const scale = Math.min(1, 2048 / Math.max(bitmap.width, bitmap.height));
-        const width = Math.max(1, Math.round(bitmap.width * scale));
-        const height = Math.max(1, Math.round(bitmap.height * scale));
-        const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
-        const context = canvas.getContext("2d", { willReadFrequently: true });
-        context.drawImage(bitmap, 0, 0, width, height);
-        state.imagePixels = context.getImageData(0, 0, width, height);
-        state.imageWidth = width;
-        state.imageHeight = height;
-        state.imageHasAlpha = file.type === "image/png";
-        bitmap.close();
-        $("#imageName").textContent = file.name;
-        $("#imageSize").textContent = `${width} × ${height}${scale < 1 ? " · scaled" : ""}`;
-        noteAsset(file.name);
-        drawImagePlane();
-        logEvent(`Image raster loaded: ${file.name} (${width}×${height}).`, "info");
-      } catch (error) {
-        logEvent(`Image decode failed: ${error.message}`, "error");
-      }
-    }
-
-    function parseWavLsb(buffer) {
-      const view = new DataView(buffer);
-      const ascii = (start, length) => String.fromCharCode(...new Uint8Array(buffer, start, length));
-      if (buffer.byteLength < 44 || ascii(0, 4) !== "RIFF" || ascii(8, 4) !== "WAVE") throw new Error("WAV container signature not found.");
-      let format = null;
-      let dataStart = -1;
-      let dataLength = 0;
-      for (let offset = 12; offset + 8 <= buffer.byteLength;) {
-        const id = ascii(offset, 4);
-        const size = view.getUint32(offset + 4, true);
-        const start = offset + 8;
-        if (start + size > buffer.byteLength) throw new Error("WAV chunk exceeds file bounds.");
-        if (id === "fmt ") format = { code: view.getUint16(start, true), channels: view.getUint16(start + 2, true), sampleRate: view.getUint32(start + 4, true), bits: view.getUint16(start + 14, true), blockAlign: view.getUint16(start + 12, true) };
-        if (id === "data" && dataStart < 0) { dataStart = start; dataLength = size; }
-        offset = start + size + (size & 1);
-      }
-      if (!format || dataStart < 0) throw new Error("WAV fmt/data chunk is missing.");
-      if (![1, 3].includes(format.code) || format.bits < 8 || format.bits > 32 || format.blockAlign < format.channels) throw new Error(`Unsupported WAV encoding (format ${format.code}, ${format.bits}-bit).`);
-      const bytesPerSample = Math.ceil(format.bits / 8);
-      const samples = Math.floor(dataLength / bytesPerSample);
-      const maxBits = Math.min(samples, 2_000_000);
-      const bits = new Uint8Array(maxBits);
-      const sampleStride = format.blockAlign || bytesPerSample * format.channels;
-      let written = 0;
-      for (let frameOffset = 0; frameOffset + sampleStride <= dataLength && written < maxBits; frameOffset += sampleStride) {
-        for (let channel = 0; channel < format.channels && written < maxBits; channel += 1) {
-          bits[written++] = view.getUint8(dataStart + frameOffset + channel * bytesPerSample) & 1;
+        
+        function applyChannelFilter(mode) {
+            if (!originalImageData) return;
+            
+            currentImageData = ctx.createImageData(originalImageData);
+            const data = currentImageData.data;
+            const origData = originalImageData.data;
+            
+            for (let i = 0; i < data.length; i += 4) {
+                const r = origData[i];
+                const g = origData[i + 1];
+                const b = origData[i + 2];
+                const a = origData[i + 3];
+                
+                switch(mode) {
+                    case 'rgb':
+                        data[i] = r;
+                        data[i + 1] = g;
+                        data[i + 2] = b;
+                        data[i + 3] = a;
+                        break;
+                    case 'red':
+                        data[i] = r;
+                        data[i + 1] = 0;
+                        data[i + 2] = 0;
+                        data[i + 3] = a;
+                        break;
+                    case 'green':
+                        data[i] = 0;
+                        data[i + 1] = g;
+                        data[i + 2] = 0;
+                        data[i + 3] = a;
+                        break;
+                    case 'blue':
+                        data[i] = 0;
+                        data[i + 1] = 0;
+                        data[i + 2] = b;
+                        data[i + 3] = a;
+                        break;
+                    case 'alpha':
+                        data[i] = a;
+                        data[i + 1] = a;
+                        data[i + 2] = a;
+                        data[i + 3] = 255;
+                        break;
+                    case 'invert':
+                        data[i] = 255 - r;
+                        data[i + 1] = 255 - g;
+                        data[i + 2] = 255 - b;
+                        data[i + 3] = a;
+                        break;
+                }
+            }
+            
+            ctx.putImageData(currentImageData, 0, 0);
         }
-      }
-      return { format, bits: bits.subarray(0, written), truncated: samples > maxBits };
-    }
-    function renderAudioBits(parsed) {
-      const bytes = packBits(parsed.bits);
-      const decoded = latin1String(bytes);
-      const visible = Array.from(decoded).filter((char) => char === "\n" || char === "\r" || char === "\t" || char >= " " && char !== "\u007f").length;
-      const ratio = decoded.length ? visible / decoded.length : 0;
-      const preview = ratio > 0.62 ? decoded.slice(0, 700) : `Binary LSB preview:\n${Array.from(bytes.slice(0, 96), (byte) => byte.toString(16).padStart(2, "0")).join(" ")}`;
-      setReadout($("#audioOutput"), `${preview}${parsed.truncated ? "\n… scan capped at 2,000,000 interleaved samples …" : ""}`);
-      $("#audioByteCount").textContent = `${bytes.length.toLocaleString()} bytes`;
-      $("#mediaChannels").textContent = String(parsed.format.channels);
-    }
-    function fftMagnitude(input) {
-      const n = input.length;
-      const real = new Float64Array(n);
-      const imag = new Float64Array(n);
-      let j = 0;
-      for (let i = 0; i < n; i += 1) {
-        if (i < j) { const tmp = input[i]; input[i] = input[j]; input[j] = tmp; }
-        let bit = n >> 1;
-        while (bit && (j & bit)) { j ^= bit; bit >>= 1; }
-        j |= bit;
-      }
-      real.set(input);
-      for (let size = 2; size <= n; size <<= 1) {
-        const half = size >> 1;
-        const angle = -2 * Math.PI / size;
-        const stepReal = Math.cos(angle);
-        const stepImag = Math.sin(angle);
-        for (let start = 0; start < n; start += size) {
-          let wr = 1;
-          let wi = 0;
-          for (let k = 0; k < half; k += 1) {
-            const even = start + k;
-            const odd = even + half;
-            const tr = wr * real[odd] - wi * imag[odd];
-            const ti = wr * imag[odd] + wi * real[odd];
-            real[odd] = real[even] - tr;
-            imag[odd] = imag[even] - ti;
-            real[even] += tr;
-            imag[even] += ti;
-            const nextWr = wr * stepReal - wi * stepImag;
-            wi = wr * stepImag + wi * stepReal;
-            wr = nextWr;
-          }
+        
+        function applyLSBExtraction(channel) {
+            if (!originalImageData) return;
+            
+            currentImageData = ctx.createImageData(originalImageData);
+            const data = currentImageData.data;
+            const origData = originalImageData.data;
+            
+            for (let i = 0; i < data.length; i += 4) {
+                let value = 0;
+                if (channel === 'red') value = origData[i];
+                else if (channel === 'green') value = origData[i + 1];
+                else if (channel === 'blue') value = origData[i + 2];
+                
+                // Extract LSB and amplify for visibility
+                const lsb = (value & 1) ? 255 : 0;
+                data[i] = lsb;
+                data[i + 1] = lsb;
+                data[i + 2] = lsb;
+                data[i + 3] = 255;
+            }
+            
+            ctx.putImageData(currentImageData, 0, 0);
         }
-      }
-      const magnitudes = new Float32Array(n >> 1);
-      for (let i = 0; i < magnitudes.length; i += 1) magnitudes[i] = Math.log1p(Math.hypot(real[i], imag[i]));
-      return magnitudes;
-    }
-    async function drawSpectrogram(audioBuffer) {
-      const canvas = $("#spectrogram");
-      const context = canvas.getContext("2d");
-      const width = canvas.width;
-      const height = canvas.height;
-      const fftSize = 256;
-      const columns = Math.min(width, 512);
-      const mono = new Float32Array(audioBuffer.length);
-      for (let channel = 0; channel < audioBuffer.numberOfChannels; channel += 1) {
-        const channelData = audioBuffer.getChannelData(channel);
-        for (let i = 0; i < mono.length; i += 1) mono[i] += channelData[i] / audioBuffer.numberOfChannels;
-      }
-      context.fillStyle = "#050a10";
-      context.fillRect(0, 0, width, height);
-      const frame = new Float64Array(fftSize);
-      for (let column = 0; column < columns; column += 1) {
-        const start = Math.floor(column / Math.max(columns - 1, 1) * Math.max(mono.length - fftSize, 0));
-        for (let i = 0; i < fftSize; i += 1) {
-          const sample = mono[Math.min(start + i, mono.length - 1)] || 0;
-          frame[i] = sample * (0.5 - 0.5 * Math.cos(2 * Math.PI * i / (fftSize - 1)));
+        
+        function applyBitPlaneExtraction(bitIndex) {
+            if (!originalImageData) return;
+            
+            currentImageData = ctx.createImageData(originalImageData);
+            const data = currentImageData.data;
+            const origData = originalImageData.data;
+            
+            for (let i = 0; i < data.length; i += 4) {
+                // Extract bit at bitIndex from all channels combined
+                const r = (origData[i] >> bitIndex) & 1;
+                const g = (origData[i + 1] >> bitIndex) & 1;
+                const b = (origData[i + 2] >> bitIndex) & 1;
+                
+                // Amplify for visibility
+                const val = (r || g || b) ? 255 : 0;
+                data[i] = val;
+                data[i + 1] = val;
+                data[i + 2] = val;
+                data[i + 3] = 255;
+            }
+            
+            ctx.putImageData(currentImageData, 0, 0);
         }
-        const spectrum = fftMagnitude(frame);
-        for (let bin = 0; bin < spectrum.length; bin += 1) {
-          const intensity = Math.max(0, Math.min(1, spectrum[bin] / 5));
-          const y = height - 1 - Math.floor(bin / spectrum.length * height);
-          const hue = 175 - intensity * 30;
-          context.fillStyle = `hsl(${hue} 92% ${Math.max(5, intensity * 64)}%)`;
-          context.fillRect(Math.floor(column / columns * width), y, Math.ceil(width / columns), 2);
+        
+        // Channel filter buttons
+        document.getElementById('btn-rgb').addEventListener('click', () => {
+            currentMode = 'rgb';
+            applyChannelFilter('rgb');
+            infoStatus.textContent = 'Full RGB display.';
+            updateAllButtons();
+        });
+        
+        document.getElementById('btn-red').addEventListener('click', () => {
+            currentMode = 'red';
+            applyChannelFilter('red');
+            infoStatus.textContent = 'Red channel isolated.';
+            updateAllButtons();
+        });
+        
+        document.getElementById('btn-green').addEventListener('click', () => {
+            currentMode = 'green';
+            applyChannelFilter('green');
+            infoStatus.textContent = 'Green channel isolated.';
+            updateAllButtons();
+        });
+        
+        document.getElementById('btn-blue').addEventListener('click', () => {
+            currentMode = 'blue';
+            applyChannelFilter('blue');
+            infoStatus.textContent = 'Blue channel isolated.';
+            updateAllButtons();
+        });
+        
+        document.getElementById('btn-alpha').addEventListener('click', () => {
+            currentMode = 'alpha';
+            applyChannelFilter('alpha');
+            infoStatus.textContent = 'Alpha channel displayed.';
+            updateAllButtons();
+        });
+        
+        document.getElementById('btn-invert').addEventListener('click', () => {
+            currentMode = 'invert';
+            applyChannelFilter('invert');
+            infoStatus.textContent = 'Colors inverted.';
+            updateAllButtons();
+        });
+        
+        // LSB extraction buttons
+        document.getElementById('btn-lsb-red').addEventListener('click', () => {
+            currentMode = 'lsb-red';
+            applyLSBExtraction('red');
+            infoStatus.textContent = 'Red channel LSB (Bit 0) extracted.';
+            updateAllButtons();
+        });
+        
+        document.getElementById('btn-lsb-green').addEventListener('click', () => {
+            currentMode = 'lsb-green';
+            applyLSBExtraction('green');
+            infoStatus.textContent = 'Green channel LSB (Bit 0) extracted.';
+            updateAllButtons();
+        });
+        
+        document.getElementById('btn-lsb-blue').addEventListener('click', () => {
+            currentMode = 'lsb-blue';
+            applyLSBExtraction('blue');
+            infoStatus.textContent = 'Blue channel LSB (Bit 0) extracted.';
+            updateAllButtons();
+        });
+        
+        // Bit plane extraction buttons
+        for (let bit = 0; bit <= 7; bit++) {
+            document.getElementById(`btn-bit${bit}`).addEventListener('click', () => {
+                applyBitPlaneExtraction(bit);
+                infoStatus.textContent = `Bit ${bit} plane extracted from all RGB channels.`;
+            });
         }
-        if (column % 24 === 0) await new Promise((resolve) => requestAnimationFrame(resolve));
-      }
-      $("#audioFrame").classList.add("has-data");
-    }
-    async function loadMedia(file) {
-      if (!file) return;
-      noteAsset(file.name);
-      $("#mediaName").textContent = file.name;
-      const isWav = file.name.toLowerCase().endsWith(".wav") || file.type === "audio/wav" || file.type === "audio/x-wav";
-      if (isWav) {
-        try {
-          const buffer = await file.arrayBuffer();
-          const parsed = parseWavLsb(buffer);
-          $("#mediaDuration").textContent = `${(buffer.byteLength / parsed.format.sampleRate).toFixed(2)}s*`;
-          renderAudioBits(parsed);
-          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-          if (AudioContextClass) {
-            state.audioContext ||= new AudioContextClass();
-            const audioBuffer = await state.audioContext.decodeAudioData(buffer.slice(0));
-            $("#mediaDuration").textContent = `${audioBuffer.duration.toFixed(2)}s`;
-            await drawSpectrogram(audioBuffer);
-          } else {
-            logEvent("Web Audio API unavailable; PCM LSB extraction remains active.", "warn");
-          }
-          logEvent(`WAV analyzed: ${file.name}; ${parsed.format.channels} interleaved channel(s).`, "info");
-        } catch (error) {
-          setReadout($("#audioOutput"), `${error.name}: ${error.message}`);
-          logEvent(`Audio analysis halted: ${error.message}`, "error");
-        }
-      } else if (file.type.startsWith("video/") || /\.(mp4|mkv|avi|webm|mov)$/i.test(file.name)) {
-        if (state.videoUrl) URL.revokeObjectURL(state.videoUrl);
-        state.videoUrl = URL.createObjectURL(file);
-        const video = $("#videoPreview");
-        video.src = state.videoUrl;
-        video.classList.add("visible");
-        video.onloadedmetadata = () => {
-          $("#mediaDuration").textContent = `${video.duration.toFixed(2)}s`;
-          logEvent(`Video metadata loaded: ${video.videoWidth}×${video.videoHeight}, ${video.duration.toFixed(2)}s.`, "info");
-        };
-        logEvent(`Video attached: ${file.name}; browser-native preview enabled.`, "info");
-      } else {
-        logEvent(`Unsupported media asset: ${file.name}`, "warn");
-      }
-    }
-
-    function displayLogRecord(record, fallbackText = "") {
-      const wrapper = document.createElement("article");
-      const event = String(record.event || "LEGACY LOG");
-      const stateText = String(record.state || record.status || "RECORDED");
-      const resourceFault = event.includes("RESOURCE INSUFFICIENCY") || stateText.includes("RECOMMENDATION");
-      const failed = /FAIL|ERROR|OPEN|BLOCKED/i.test(stateText) || event.includes("FLAWS_INCIDENT");
-      wrapper.className = `timeline-entry${resourceFault ? " fault" : ""}${failed ? " failed" : ""}`;
-      const top = document.createElement("div");
-      top.className = "entry-top";
-      const time = document.createElement("span");
-      time.className = "entry-time";
-      time.textContent = record.timestamp || record.time || "TIMESTAMP UNAVAILABLE";
-      const stateNode = document.createElement("span");
-      stateNode.className = "entry-state";
-      stateNode.textContent = resourceFault ? "RESOURCE INSUFFICIENCY FAULT" : `${event} / ${stateText}`;
-      top.append(time, stateNode);
-      wrapper.append(top);
-      const path = document.createElement("div");
-      path.className = "entry-path";
-      path.textContent = record.source_file || record.path || record.tool || fallbackText.slice(0, 120) || "Unknown source";
-      wrapper.append(path);
-      const fileState = record.file_state || {};
-      const meta = document.createElement("div");
-      meta.className = "entry-meta";
-      const stateParts = [];
-      if (fileState.exists !== undefined) stateParts.push(`FILE ${fileState.exists ? "PRESENT" : "MISSING"}`);
-      if (fileState.size_bytes !== undefined) stateParts.push(`${fileState.size_bytes} B`);
-      if (fileState.sha256) stateParts.push(`SHA256 ${fileState.sha256.slice(0, 16)}…`);
-      if (record.recent_structural_updates_added !== null && record.recent_structural_updates_added !== undefined) stateParts.push(`STRUCTURAL UPDATE ${record.recent_structural_updates_added ? "YES" : "NO"}`);
-      if (record.active_blocks?.length) stateParts.push(`BLOCKS ${record.active_blocks.join(" · ")}`);
-      meta.textContent = stateParts.join("  /  ") || "FILE STATE NOT INCLUDED";
-      wrapper.append(meta);
-      const details = record.details || {};
-      const recommendations = details.recommended_patches || details.recommendations || [];
-      const content = [];
-      if (details.puzzle_class) content.push(`PUZZLE CLASS: ${details.puzzle_class}`);
-      if (details.structural_gap) content.push(`STRUCTURAL GAP: ${details.structural_gap}`);
-      if (details.summary) content.push(`DIAGNOSIS: ${details.summary}`);
-      if (details.message) content.push(`DETAIL: ${details.message}`);
-      if (recommendations.length) content.push(`RECOMMENDED UPGRADES:\n${recommendations.map((item) => `• ${item}`).join("\n")}`);
-      if (fallbackText && fallbackText.length > 120) content.push(fallbackText.slice(120, 500));
-      if (content.length) {
-        const detail = document.createElement("div");
-        detail.className = "entry-detail";
-        detail.textContent = content.join("\n");
-        wrapper.append(detail);
-      }
-      return wrapper;
-    }
-    function renderTimeline() {
-      const query = $("#logFilter").value.trim().toLowerCase();
-      const target = $("#timeline");
-      target.replaceChildren();
-      const filtered = state.telemetry.filter((record) => JSON.stringify(record).toLowerCase().includes(query));
-      if (!filtered.length) {
-        const empty = document.createElement("div");
-        empty.className = "empty-state";
-        empty.textContent = state.telemetry.length ? "NO MATCHES FOR CURRENT FILTER" : "NO TELEMETRY LOADED / ATTACH A LOG FILE";
-        target.append(empty);
-      } else {
-        for (const record of filtered.slice(-120).reverse()) target.append(displayLogRecord(record));
-      }
-      const faults = state.telemetry.filter((record) => String(record.event).includes("RESOURCE INSUFFICIENCY") || String(record.event).includes("FLAWS_INCIDENT") || /FAIL|ERROR|OPEN|BLOCKED/i.test(String(record.state))).length;
-      $("#logRecords").textContent = state.telemetry.length.toLocaleString();
-      $("#logFaults").textContent = faults.toLocaleString();
-      $("#logLatest").textContent = state.telemetry.length ? String(state.telemetry[state.telemetry.length - 1].state || "RECORDED") : "—";
-      $("#telemetryCount").textContent = state.telemetry.length.toLocaleString();
-    }
-    function parseLogText(text) {
-      const lines = text.split(/\r?\n/).filter((line) => line.trim());
-      const records = [];
-      for (const line of lines) {
-        try {
-          const record = JSON.parse(line);
-          if (record && typeof record === "object") records.push(record);
-        } catch (_) {
-          records.push({ timestamp: "PLAIN TEXT RECORD", event: "LEGACY LOG", state: "RECORDED", details: { message: line.slice(0, 600) }, source_file: "text log" });
-        }
-      }
-      state.telemetry = records;
-      renderTimeline();
-      $("#logStatus").textContent = `${records.length} record(s) parsed · Latin-1-safe display`;
-      logEvent(`Patch radar indexed ${records.length} telemetry record(s).`, "info");
-    }
-    async function loadDefaultLog() {
-      $("#logStatus").textContent = "Reading puzzles/logs/diagnostics/workspace_patches.log…";
-      try {
-        const response = await fetch("./logs/diagnostics/workspace_patches.log", { cache: "no-store" });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        parseLogText(await response.text());
-        logEvent("Workspace patch radar connected to the default log path.", "info");
-      } catch (error) {
-        $("#logStatus").textContent = `Local fetch unavailable (${error.message}). Attach workspace_patches.log to inspect it.`;
-        logEvent("Patch radar needs a local log attachment; browser sandbox blocked direct path access.", "warn");
-      }
-    }
-
-    async function attachQueue(files) {
-      const fileList = Array.from(files || []);
-      if (!fileList.length) return;
-      state.queue.push(...fileList);
-      $("#queueCount").textContent = state.queue.length.toLocaleString();
-      $("#queueLast").textContent = fileList[fileList.length - 1].name;
-      const summaries = fileList.map((file) => `${file.name}  /  ${file.type || "unknown type"}  /  ${file.size.toLocaleString()} B`);
-      setReadout($("#queueReadout"), summaries.join("\n"));
-      for (const file of fileList) {
-        noteAsset(file.name);
-        const lower = file.name.toLowerCase();
-        if (lower.endsWith(".txt") || lower.endsWith(".log") || file.type.startsWith("text/")) {
-          const text = await file.text();
-          $("#cipherInput").value = text;
-          $("#zeroInput").value = text;
-          renderZeroWidth();
-          logEvent(`Text asset queued and routed to cipher / zero-width lanes: ${file.name}.`, "info");
-        } else if (file.type.startsWith("image/") || /\.(png|jpe?g)$/i.test(lower)) {
-          await loadImage(file);
-        } else if (file.type.startsWith("audio/") || /\.wav$/i.test(lower)) {
-          await loadMedia(file);
-        } else if (file.type.startsWith("video/") || /\.(mp4|mkv|avi|webm|mov)$/i.test(lower)) {
-          await loadMedia(file);
-        } else {
-          logEvent(`Queued asset has no matching analysis lane: ${file.name}.`, "warn");
-        }
-      }
-    }
-    function wireDropzone(element, handler, accepts = () => true) {
-      element.addEventListener("dragover", (event) => { event.preventDefault(); element.classList.add("dragover"); });
-      element.addEventListener("dragleave", () => element.classList.remove("dragover"));
-      element.addEventListener("drop", (event) => {
-        event.preventDefault();
-        element.classList.remove("dragover");
-        const file = Array.from(event.dataTransfer.files || []).find(accepts);
-        if (file) handler(file);
-        else if (event.dataTransfer.getData("text/plain")) handler(event.dataTransfer.getData("text/plain"));
-        else logEvent("Dropped asset type is not supported in this lane.", "warn");
-      });
-    }
-
-    $("#clock").textContent = timestamp();
-    window.setInterval(() => { $("#clock").textContent = timestamp(); }, 1000);
-    $("#runCipher").addEventListener("click", runCipher);
-    $("#cipherInput").addEventListener("keydown", (event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") runCipher(); });
-    $("#copyCipher").addEventListener("click", async () => {
-      try { await navigator.clipboard.writeText($("#cipherOutput").textContent); logEvent("Output copied to clipboard.", "info"); }
-      catch (_) { logEvent("Clipboard access denied by browser permissions.", "warn"); }
-    });
-    $("#clearCipher").addEventListener("click", () => { $("#cipherInput").value = ""; setReadout($("#cipherOutput"), "Output stream will appear here.", true); $("#byteCount").textContent = "0 BYTES"; });
-    $("#cipherFile").addEventListener("change", async (event) => {
-      const file = event.target.files?.[0];
-      if (!file) return;
-      try { $("#cipherInput").value = latin1String(new Uint8Array(await file.arrayBuffer())); noteAsset(file.name); logEvent(`Cipher text loaded from ${file.name}.`, "info"); }
-      catch (error) { logEvent(`Text file read failed: ${error.message}`, "error"); }
-    });
-    $("#zeroInput").addEventListener("input", renderZeroWidth);
-    wireDropzone($("#zeroDrop"), async (value) => {
-      if (typeof value === "string") $("#zeroInput").value = value;
-      else $("#zeroInput").value = await value.text();
-      renderZeroWidth();
-    }, (file) => file.type.startsWith("text/") || /\.(txt|log)$/i.test(file.name));
-    $("#imageFile").addEventListener("change", (event) => loadImage(event.target.files?.[0]));
-    wireDropzone($("#imageDrop"), loadImage, (file) => file.type.startsWith("image/"));
-    $("#imageChannel").addEventListener("change", drawImagePlane);
-    $("#imageBit").addEventListener("change", drawImagePlane);
-    $("#mediaFile").addEventListener("change", (event) => loadMedia(event.target.files?.[0]));
-    wireDropzone($("#mediaDrop"), loadMedia, (file) => file.type.startsWith("audio/") || file.type.startsWith("video/") || /\.(wav|mp4|mkv|avi|webm|mov)$/i.test(file.name));
-    wireDropzone($("#queueDrop"), (file) => attachQueue([file]));
-    $("#queueDrop").addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); $("#cipherFile").click(); }
-    });
-    $("#loadDefaultLog").addEventListener("click", loadDefaultLog);
-    $("#logFile").addEventListener("change", async (event) => {
-      const file = event.target.files?.[0];
-      if (!file) return;
-      parseLogText(await file.text());
-      noteAsset(file.name);
-      $("#logStatus").textContent = `Attached ${file.name} · ${state.telemetry.length} record(s)`;
-    });
-    $("#logFilter").addEventListener("input", renderTimeline);
-    window.addEventListener("beforeunload", () => {
-      if (state.videoUrl) URL.revokeObjectURL(state.videoUrl);
-      if (state.audioContext && state.audioContext.state !== "closed") state.audioContext.close();
-    });
-
-    logEvent("HUD initialized. Client-side processors ready; no remote services attached.", "info");
-    logEvent("Latin-1 lookup table online: 256 byte values mapped without filtering.");
-    loadDefaultLog();
-  </script>
+    </script>
 </body>
 </html>
